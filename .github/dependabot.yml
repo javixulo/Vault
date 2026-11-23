@@ -1,0 +1,43 @@
+version: 2
+
+# Updates come grouped, one pull request per ecosystem, every 15 days (the 1st and the 16th of each month; cron cannot
+# express an exact interval). Versions that the project cannot use are ignored here, so Dependabot never proposes them.
+updates:
+  # The actions in the workflows are pinned to a commit SHA (with the version in a comment); this proposes the updates.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: cron
+      cronjob: "0 5 1,16 * *"
+    groups:
+      actions:
+        patterns: ["*"]
+    ignore:
+      # A new major version of an action can change how it behaves (inputs, artifact format, runtime). It is updated by
+      # hand, after reading its release notes and running the workflow.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "ci"
+
+  # The base images of the Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: cron
+      cronjob: "0 5 1,16 * *"
+    groups:
+      base-images:
+        patterns: ["*"]
+    ignore:
+      # The project is .NET 10 (technical spec, section 1; `global.json`). Moving to .NET 11 is a decision, not an update.
+      - dependency-name: "mcr.microsoft.com/dotnet/sdk"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "mcr.microsoft.com/dotnet/aspnet"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet/sdk"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet/aspnet"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "build"
