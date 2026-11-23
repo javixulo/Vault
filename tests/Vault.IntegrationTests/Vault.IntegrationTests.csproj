@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The services and the RPC client with real HTTP and files, against a stand-in of the OMV RPC endpoint (tests/shared). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="4.0.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vault.Core\Vault.Core.csproj" />
+    <!-- Only for StartupValidation, which reads the real credentials file. -->
+    <ProjectReference Include="..\..\src\Vault.Mcp\Vault.Mcp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\shared\FakeOmvServer.cs" Link="shared\FakeOmvServer.cs" />
+    <!-- The spec travels with the tests (CI test jobs do not check out the repository): see SpecAllowlistTests. -->
+    <Content Include="..\..\docs\functional_spec.md" Link="docs\functional_spec.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
