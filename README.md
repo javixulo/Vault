@@ -4,7 +4,7 @@
 
 Vault is a small, **read-only** [MCP](https://modelcontextprotocol.io) server that wraps the JSON-RPC API of [OpenMediaVault](https://www.openmediavault.org) (OMV). It plugs into your AI assistant and lets it look at the real state of the NAS (system, shared folders and, as the catalog grows, permissions, services, disks, users and backups) instead of trusting documentation that may be out of date.
 
-> **Status: skeleton.** Two tools are built to prove the design end to end: `system_status` and `list_shared_folders`. The rest of the catalog waits for the check of which OMV version the NAS runs (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)). Nothing here has been run against a real OMV yet.
+> **Status: skeleton.** Two tools are built to prove the design end to end: `system_status` and `list_shared_folders`. The rest of the catalog is still to be specified (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)). Both tools have been run against OMV 8.5.12 (a real NAS) and 8.5.1 (a Docker image); other versions are untested.
 
 ## Tools
 
@@ -23,7 +23,7 @@ OMV has no API keys with limited permissions: Vault logs in with an OMV account,
 - A test fails if the code exposes a call that the spec does not document.
 - The credentials are a **Docker secret** (a file), never an environment variable in plain text.
 
-Use, if you can, a dedicated OMV account for Vault, not the one you use yourself.
+Use a dedicated OMV account for Vault, not the one you use yourself. See [Set up the OMV account](#set-up-the-omv-account): that account needs administrator rights, so read what that means before you create it.
 
 ---
 
@@ -35,6 +35,22 @@ Vault is written in **C# / .NET 10**.
 
 - .NET SDK 10 (see `global.json`), or Docker.
 - An OMV (its web interface address) and an account for Vault.
+
+## Set up the OMV account
+
+OMV has **no API keys** (checked in the code of OMV 8.5): its API is the one the web interface uses, and it is reached by logging in with a user name and a password. So Vault needs an OMV user.
+
+1. In the OMV web interface, go to **Users → Users** and create a user just for Vault (for example `vault-mcp`). Give it a long, unique password: it will live in a file on the machine that runs Vault, so do not reuse one.
+2. Add that user to the group **`openmediavault-admin`** (the web interface administrators). It is a system group: if it is not in the list when you edit the user, look for the option that shows system groups.
+3. Put the user name and the password in `secrets/omv_credentials.json` (see [Run](#run)).
+
+**Why the administrator group.** Tested on OMV 8.5.12: a user in no group can log in and `system_status` works, but OMV answers HTTP 403 to `list_shared_folders`, because OMV demands the administrator role for most of its calls. Without the group, Vault says so in the tool's error ("the account lacks the role it needs"). Which other tools will work without it is not known yet.
+
+**What that means for security.** The account is a full administrator of OMV, so anyone who gets its password can change the NAS. Vault itself cannot: it only knows a fixed list of read-only calls (see [Read-only by construction](#read-only-by-construction)). Protect the password:
+
+- Keep it only in `secrets/omv_credentials.json`, never in `.env`, in the compose file or in the repository (both files are git-ignored).
+- Make that file readable only by you and by the container's user.
+- Do not reuse the password, and use the account for nothing else. Changing it is enough to cut Vault off.
 
 ## Run
 
@@ -75,10 +91,12 @@ On start the server validates its configuration (OMV address, time limit, creden
 ## Docker
 
 ```powershell
-Copy-Item secrets/omv_credentials.example.json secrets/omv_credentials.json   # then edit it
-$env:VAULT_OMV_URL = "https://nas.local"
+Copy-Item .env.template .env                                                   # settings that are not secret: edit it
+Copy-Item secrets/omv_credentials.example.json secrets/omv_credentials.json   # the OMV account (the secret): edit it
 docker compose up -d --build
 ```
+
+`.env` holds the address of OMV, the port and the user of the container; the account (username and password) goes only in `secrets/omv_credentials.json`, never in `.env`. Both files are git-ignored.
 
 A minimal `docker-compose.yml` (the repository's own file has the same shape and more comments):
 
@@ -143,7 +161,7 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds t
 │ Vault.Mcp   ASP.NET Core host              │
 │   tool classes (thin: bind args, call a    │
 │   service, return its result)              │
-└──────────────────┬─────────────────────┘
+└──────────────────┬─────────────────┘
                    ▼
 ┌──────────────────────────────────────────────┐
 │ Vault.Core   all the logic                 │
@@ -151,7 +169,7 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds t
 │   SharedFolderLister                       │
 │   port: IOmvRpcClient  ── OmvRpcCall       │
 │   (a fixed list of read-only calls)        │
-└──────────────────┬─────────────────┘
+└──────────────────┬─────────────┘
                    ▼  POST /rpc.php (Session.login, then the call)
              OpenMediaVault
 ```
@@ -179,6 +197,7 @@ The main design decisions:
 | `secrets/` | Where the OMV credentials file goes (git-ignored; only the example is versioned) |
 | `docs/` | Functional spec (what the tools do) and technical spec (how and why) |
 | `Dockerfile`, `docker-compose.yml` | Container image and deployment |
+| `.env.template` | Template of `.env`, the non-secret settings for compose |
 | `scripts/smoke-test.sh` | Smoke test of the Docker image: it starts, `/health` answers and the tools are listed |
 
 ## License
