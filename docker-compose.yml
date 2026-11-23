@@ -1,0 +1,38 @@
+# Vault MCP (read-only wrapper of the OpenMediaVault API). Copy this file next to your other MCPs and adjust the user and the paths.
+services:
+  vault:
+    build: .
+    image: vault-mcp:latest
+    container_name: vault-mcp
+    restart: unless-stopped
+    # Non-root. The secret below is a file on the host: this user must be able to read it (`id -u`:`id -g` on the NAS).
+    user: "${VAULT_UID:-1000}:${VAULT_GID:-1000}"
+    ports:
+      - "${VAULT_PORT:-8080}:8080"
+    # Least privilege: Vault only talks HTTP(S) to OMV and writes nothing.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      # Address of the OMV web interface. Vault adds /rpc.php. Required.
+      Vault__OmvBaseUrl: ${VAULT_OMV_URL:?Set VAULT_OMV_URL to the address of OpenMediaVault, for example https://nas.local}
+      # OpenTelemetry (Seq accepts OTLP over HTTP). Leave empty to export nothing; logs still go to `docker logs`.
+      OTEL_SERVICE_NAME: vault-mcp
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # Seq only accepts HTTP: the SDK default (gRPC) would fail silently. Change it only if the backend changes.
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=${VAULT_ENVIRONMENT:-production}
+    # SECURITY: the credentials of the OMV account are a Docker SECRET (a file mounted at /run/secrets/omv_credentials),
+    # NEVER an environment variable in plain text, and never in this file or in the image. The account is a full OMV
+    # account (OMV has no API keys with limited permissions): the read-only boundary is Vault's fixed list of calls, so
+    # keep this secret out of the repository and out of backups that others can read.
+    secrets:
+      - omv_credentials
+
+secrets:
+  omv_credentials:
+    # A JSON file: {"username": "...", "password": "..."}. See secrets/omv_credentials.example.json. Keep it out of git
+    # (the secrets/ folder is git-ignored) and readable only by the owner and by VAULT_UID, for example chmod 0400.
+    file: ${VAULT_CREDENTIALS_FILE:-./secrets/omv_credentials.json}
