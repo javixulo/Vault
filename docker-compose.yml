@@ -18,6 +18,8 @@ services:
       TZ: ${TZ:-Europe/Madrid}
       # Address of the OMV web interface. Vault adds /rpc.php. Required.
       Vault__OmvBaseUrl: ${VAULT_OMV_URL:?Set VAULT_OMV_URL to the address of OpenMediaVault, for example https://nas.local}
+      # Accept a self-signed TLS certificate from OMV. Off by default; see .env.template for the risk.
+      Vault__AllowInvalidCertificate: ${VAULT_ALLOW_INVALID_CERTIFICATE:-false}
       # OpenTelemetry (Seq accepts OTLP over HTTP). Leave empty to export nothing; logs still go to `docker logs`.
       OTEL_SERVICE_NAME: vault-mcp
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}

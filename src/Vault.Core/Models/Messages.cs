@@ -37,6 +37,10 @@ public static class Messages
             ErrorCodes.OmvAuthFailed,
             $"{what} failed: OpenMediaVault refused the credentials Vault has (or the session could not be renewed). Nothing was changed. " +
             "Do not retry; tell the user to check the OMV account and the credentials secret of Vault."),
+        OmvRpcErrorKind.Forbidden => new VaultError(
+            ErrorCodes.OmvAuthFailed,
+            $"{what} failed: OpenMediaVault accepted the account Vault logs in with, but does not allow it this call (the account lacks the role it needs). Nothing was changed. " +
+            "Do not retry; tell the user the OMV account of Vault needs more rights for this tool."),
         OmvRpcErrorKind.BadResponse => new VaultError(
             ErrorCodes.OmvBadResponse,
             $"{what} failed: OpenMediaVault answered in a format Vault does not understand (the OMV version may differ from the one Vault supports). Nothing was changed. " +

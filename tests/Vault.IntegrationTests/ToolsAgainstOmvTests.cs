@@ -60,6 +60,20 @@ public sealed class ToolsAgainstOmvTests
     }
 
     [Fact]
+    [Trait("Criteria", "UC-02.AC2")]
+    public async Task An_account_that_OMV_forbids_a_call_is_told_so_and_the_session_is_not_renewed_for_nothing()
+    {
+        await using var env = await OmvTestEnvironment.StartAsync();
+        env.Server.ForbiddenCalls.Add("ShareMgmt.getList");
+
+        var result = await new SharedFolderLister(env.Client, NullLogger<SharedFolderLister>.Instance).ListAsync(null, null, Token);
+
+        Assert.Equal("omv_auth_failed", result.Error!.Code);
+        Assert.Contains("does not allow it this call", result.Error.Message, StringComparison.Ordinal);
+        Assert.Equal(1, env.Server.Calls.Count(c => c == "Session.login"));
+    }
+
+    [Fact]
     [Trait("Criteria", "UC-02.AC2, UC-02.AC6")]
     public async Task Wrong_credentials_are_an_error_that_does_not_show_them()
     {

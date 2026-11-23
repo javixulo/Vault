@@ -8,6 +8,9 @@ public enum OmvRpcErrorKind
     /// <summary>OMV refused the credentials.</summary>
     AuthFailed,
 
+    /// <summary>OMV knows the account but forbids this call to it (HTTP 403): the account lacks the role the call needs. Renewing the session does not help.</summary>
+    Forbidden,
+
     /// <summary>The session is no longer valid. The client renews it once by itself; it only reaches a caller as <see cref="AuthFailed"/>.</summary>
     SessionExpired,
 

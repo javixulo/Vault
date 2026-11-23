@@ -140,9 +140,15 @@ public sealed class OmvRpcClient(HttpClient http, Uri endpoint, IOmvCredentialsP
         using (response)
         {
             var text = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (call != OmvRpcCall.Login && response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            if (call != OmvRpcCall.Login && response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                throw new OmvRpcException(OmvRpcErrorKind.SessionExpired, $"OMV answered HTTP {(int)response.StatusCode} to {call.Name}.");
+                throw new OmvRpcException(OmvRpcErrorKind.SessionExpired, $"OMV answered HTTP 401 to {call.Name}.");
+            }
+
+            // Seen on OMV 8.5.12: an account outside the group openmediavault-admin logs in, but is forbidden some calls.
+            if (call != OmvRpcCall.Login && response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                throw new OmvRpcException(OmvRpcErrorKind.Forbidden, $"OMV answered HTTP 403 to {call.Name}: the account is not allowed this call.");
             }
 
             return ReadResponse(call, (int)response.StatusCode, text);

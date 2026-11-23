@@ -51,6 +51,9 @@ public sealed class FakeOmvServer : IAsyncDisposable
     /// <summary>Every RPC the fake received, as <c>Service.method</c>, in order.</summary>
     public IReadOnlyList<string> Calls => [.. _calls];
 
+    /// <summary>Calls (as <c>Service.method</c>) the fake answers with HTTP 403, as OMV does for an account without the admin role.</summary>
+    public HashSet<string> ForbiddenCalls { get; } = [];
+
     /// <summary>When set, the fake answers every call except the login with this RPC error code.</summary>
     public int? FailWithRpcCode { get; set; }
 
@@ -98,6 +101,12 @@ public sealed class FakeOmvServer : IAsyncDisposable
         {
             // As OMV 8.5 does: HTTP 401, code 0.
             return Error(0, "Session not authenticated.", 401);
+        }
+
+        if (ForbiddenCalls.Contains($"{service}.{method}"))
+        {
+            // As OMV 8.5.12 does for an account that is not in the group openmediavault-admin.
+            return Error(0, "Forbidden.", 403);
         }
 
         if (FailWithRpcCode is { } code)
