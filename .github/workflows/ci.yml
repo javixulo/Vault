@@ -159,7 +159,7 @@ jobs:
         run: docker build -t vault-mcp:ci .
 
       - name: Smoke test
-        run: scripts/smoke-test.sh vault-mcp:ci
+        run: bash scripts/smoke-test.sh vault-mcp:ci
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         if: github.event_name != 'pull_request'

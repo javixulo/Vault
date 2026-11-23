@@ -73,7 +73,7 @@ jobs:
         run: docker pull "localhost:5000/vault:$VERSION"
 
       - name: Smoke test of the pulled image
-        run: scripts/smoke-test.sh "localhost:5000/vault:$VERSION"
+        run: bash scripts/smoke-test.sh "localhost:5000/vault:$VERSION"
 
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
