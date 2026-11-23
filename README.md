@@ -169,7 +169,8 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds t
 │ Vault.Core   all the logic                 │
 │   services: SystemStatusReader,            │
 │   SharedFolderLister,                      │
-│   FolderPermissionsReader                  │
+│   FolderPermissionsReader,                 │
+│   FolderAclReader                          │
 │   port: IOmvRpcClient  ── OmvRpcCall       │
 │   (a fixed list of read-only calls)        │
 └──────────────────┬─────────────────────────┘
