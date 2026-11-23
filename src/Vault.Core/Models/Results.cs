@@ -74,6 +74,37 @@ public sealed record FolderPermissionsResult(
     public static FolderPermissionsResult Failure(string folder, VaultError error) => new(folder, [], null, error);
 }
 
+/// <summary>One named user or group with an entry in the extended ACL of a shared folder's root.</summary>
+/// <param name="SubjectType"><c>user</c> or <c>group</c>.</param>
+/// <param name="SubjectName">Name of the user or group.</param>
+/// <param name="Permissions">Three characters, <c>r</c>, <c>w</c> and <c>x</c> or <c>-</c> (for example <c>rwx</c>, <c>r-x</c>).</param>
+public sealed record AclEntry(string SubjectType, string SubjectName, string Permissions);
+
+/// <summary>
+/// Outcome of <c>get_folder_acl</c>: the POSIX owner, group and base permissions of the folder's root plus its named ACL entries.
+/// <c>Message</c> is set when there is no named entry.
+/// </summary>
+public sealed record FolderAclResult(
+    string Folder,
+    string? Owner,
+    string? Group,
+    string? OwnerPermissions,
+    string? GroupPermissions,
+    string? OtherPermissions,
+    IReadOnlyList<AclEntry> Entries,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static FolderAclResult Found(string folder, string? owner, string? group, string ownerPerms, string groupPerms, string otherPerms, IReadOnlyList<AclEntry> entries, string? message = null) =>
+        new(folder, owner, group, ownerPerms, groupPerms, otherPerms, entries, message);
+
+    public static FolderAclResult Failure(string folder, VaultError error) => new(folder, null, null, null, null, null, [], null, error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";

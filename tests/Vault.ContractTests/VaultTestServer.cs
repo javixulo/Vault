@@ -18,6 +18,8 @@ internal sealed class StubOmv : IOmvRpcClient
     public Func<OmvRpcCall, JsonElement> Answer { get; set; } = call =>
         call == OmvRpcCall.SystemInformation
             ? Parse("""{"hostname":"nas","version":"7.4.0","kernel":"Linux 6.1","cpuModelName":"N100","cpuUtilization":3.5,"memTotal":8000,"memUsed":2000,"uptime":3600}""")
+            : call == OmvRpcCall.SharedFolderAcl
+                ? Parse("""{"file":"srv/x/media/","owner":"root","group":"users","acl":{"user":7,"group":5,"other":0,"users":[{"name":"root","perms":null,"uid":0,"system":true},{"name":"kid","perms":5,"uid":1001,"system":false}],"groups":[{"name":"family","perms":7,"gid":1000,"system":false},{"name":"admins","perms":null,"gid":1001,"system":false}]}}""")
             : call == OmvRpcCall.SharedFolderPrivileges
                 ? Parse("""[{"type":"group","name":"family","perms":7},{"type":"user","name":"kid","perms":5},{"type":"user","name":"guest","perms":0}]""")
                 : Parse("""{"total":3,"data":[{"uuid":"u1","name":"media","reldirpath":"media/","comment":"Movies"},{"uuid":"u2","name":"photos","reldirpath":"photos/"},{"uuid":"u3","name":"backups","reldirpath":"backups/"}]}""");

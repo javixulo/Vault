@@ -32,8 +32,11 @@ public sealed class OmvRpcCall
     /// <summary>The per-user and per-group privileges of one shared folder. Used by <c>get_folder_permissions</c>. Checked against OMV 8.5.12.</summary>
     public static readonly OmvRpcCall SharedFolderPrivileges = new("ShareMgmt", "getPrivileges");
 
+    /// <summary>The extended POSIX ACL of a shared folder's root. Used by <c>get_folder_acl</c>. Checked against OMV 8.5.12.</summary>
+    public static readonly OmvRpcCall SharedFolderAcl = new("ShareMgmt", "getFileACL");
+
     /// <summary>Every call a tool can make, in a fixed order. <see cref="Login"/> is not here.</summary>
-    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges];
+    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl];
 
     public override string ToString() => Name;
 }

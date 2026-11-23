@@ -13,7 +13,7 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c> and <c>ShareMgmt.getPrivileges</c>, and it
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c> and <c>ShareMgmt.getFileACL</c>, and it
 /// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
 /// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
@@ -56,6 +56,17 @@ public sealed class FakeOmvServer : IAsyncDisposable
     public Dictionary<string, List<(string Type, string Name, int Perms)>> Privileges { get; } = new()
     {
         ["media"] = [("group", "family", 7), ("user", "kid", 5), ("user", "guest", 0)],
+    };
+
+    /// <summary>
+    /// The ACL of a shared folder's root, by folder name: POSIX owner, group, base permissions (0 to 7) and the named entries.
+    /// The shape of <c>ShareMgmt.getFileACL</c> was checked against a real OMV 8.5.12: <c>{file, owner, group, acl: {user, group,
+    /// other, users: [...], groups: [...]}}</c>, listing every user and group of the NAS with <c>perms</c> null when it has no entry.
+    /// A folder not listed here has owner root, group users, 7/0/0 and no named entry.
+    /// </summary>
+    public Dictionary<string, (string Owner, string Group, int User, int GroupPerms, int Other, List<(string Type, string Name, int Perms)> Entries)> Acls { get; } = new()
+    {
+        ["media"] = ("root", "users", 7, 5, 0, [("group", "family", 7), ("user", "kid", 5)]),
     };
 
     /// <summary>Every RPC the fake received, as <c>Service.method</c>, in order.</summary>
@@ -144,6 +155,7 @@ public sealed class FakeOmvServer : IAsyncDisposable
             }),
             ("ShareMgmt", "getList") => SharedFolderList(parameters),
             ("ShareMgmt", "getPrivileges") => FolderPrivileges(parameters),
+            ("ShareMgmt", "getFileACL") => FolderAcl(parameters),
             _ => Error(1, $"Unknown method {service}.{method}."),
         };
     }
@@ -193,6 +205,39 @@ public sealed class FakeOmvServer : IAsyncDisposable
             name = s.Item2,
             perms = set.Any(p => p.Type == s.Item1 && p.Name == s.Item2) ? (int?)set.First(p => p.Type == s.Item1 && p.Name == s.Item2).Perms : null,
         }).ToList());
+    }
+
+    private IResult FolderAcl(JsonElement parameters)
+    {
+        var uuid = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("uuid", out var u) ? u.GetString() : null;
+        var file = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("file", out var f) ? f.GetString() : null;
+        var folder = SharedFolders.FirstOrDefault(s => s.Uuid == uuid);
+        if (folder.Name is null || file != "/")
+        {
+            return Error(1, "Shared folder not found.");
+        }
+
+        var acl = Acls.TryGetValue(folder.Name, out var found) ? found : ("root", "users", 7, 0, 0, []);
+        int? Perms(string type, string name) =>
+            acl.Entries.Where(e => e.Type == type && e.Name == name).Select(e => (int?)e.Perms).FirstOrDefault();
+
+        // As a real OMV 8.5.12 does: every user and group of the NAS (system ones too), perms null when there is no entry.
+        return Ok(new
+        {
+            file = "srv/dev-disk-by-uuid-fake/" + folder.RelPath,
+            owner = acl.Owner,
+            group = acl.Group,
+            acl = new
+            {
+                user = acl.User,
+                group = acl.GroupPerms,
+                other = acl.Other,
+                users = new[] { ("root", 0, true), ("ana", 1000, false), ("kid", 1001, false), ("guest", 1002, false) }
+                    .Select(s => new { name = s.Item1, perms = Perms("user", s.Item1), uid = s.Item2, system = s.Item3 }).ToList(),
+                groups = new[] { ("root", 0, true), ("family", 1000, false), ("admins", 1001, false) }
+                    .Select(s => new { name = s.Item1, perms = Perms("group", s.Item1), gid = s.Item2, system = s.Item3 }).ToList(),
+            },
+        });
     }
 
     private static IResult Ok(object response) =>

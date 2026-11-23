@@ -4,7 +4,7 @@
 
 Vault is a small, **read-only** [MCP](https://modelcontextprotocol.io) server that wraps the JSON-RPC API of [OpenMediaVault](https://www.openmediavault.org) (OMV). It plugs into your AI assistant and lets it look at the real state of the NAS (system, shared folders and, as the catalog grows, permissions, services, disks, users and backups) instead of trusting documentation that may be out of date.
 
-> **Status: skeleton.** Three tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders` and `get_folder_permissions` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); other OMV versions are untested.
+> **Status: skeleton.** Four tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders`, `get_folder_permissions` and `get_folder_acl` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); other OMV versions are untested.
 
 ## Tools
 
@@ -15,6 +15,7 @@ Every tool is **read-only**: none changes anything on the NAS.
 | `system_status` | Hostname, OMV version, kernel, CPU, memory and uptime | "How is the NAS doing?" |
 | `list_shared_folders` | The shared folders OMV defines, one page at a time (`limit`, `offset`, `total`, `has_more`) | "Which shared folders does the NAS have?" |
 | `get_folder_permissions` | The privileges OMV has set for one shared folder: each user or group and its access (`read_write`, `read_only`, `deny`) | "Who can write to `media`?" |
+| `get_folder_acl` | The extended POSIX ACL of a shared folder's root: owner, group, base permissions and the named users and groups with their `rwx` | "Does `Documentos` have extra ACL entries?" |
 
 ## Read-only by construction
 

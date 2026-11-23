@@ -59,7 +59,7 @@ public sealed class FolderPermissionsReader(IOmvRpcClient omv, ILogger<FolderPer
             return FolderPermissionsResult.Failure(folder, new VaultError(ErrorCodes.InvalidArguments, Messages.BlankFolder));
         }
 
-        var uuid = await FindUuidAsync(folder, cancellationToken);
+        var uuid = await SharedFolderLookup.FindUuidAsync(omv, folder, cancellationToken);
         if (uuid is null)
         {
             LogNotFound();
@@ -78,30 +78,6 @@ public sealed class FolderPermissionsReader(IOmvRpcClient omv, ILogger<FolderPer
         return privileges.Count == 0
             ? FolderPermissionsResult.Empty(folder, Messages.NoPrivileges(folder))
             : FolderPermissionsResult.Found(folder, privileges);
-    }
-
-    /// <summary>The uuid of the shared folder with exactly this name (OMV names are case-sensitive), or null when there is none.</summary>
-    private async Task<string?> FindUuidAsync(string folder, CancellationToken cancellationToken)
-    {
-        var response = await omv.CallAsync(OmvRpcCall.SharedFolders, new { start = 0, limit = (int?)null }, cancellationToken);
-        if (response.ValueKind != JsonValueKind.Object || !response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-        {
-            throw new OmvRpcException(OmvRpcErrorKind.BadResponse, "ShareMgmt.getList did not return an object with a 'data' array.");
-        }
-
-        foreach (var entry in data.EnumerateArray())
-        {
-            if (entry.ReadString("name") != folder)
-            {
-                continue;
-            }
-
-            return entry.ReadString("uuid") is { Length: > 0 } uuid
-                ? uuid
-                : throw new OmvRpcException(OmvRpcErrorKind.BadResponse, "The shared folder entry has no uuid.");
-        }
-
-        return null;
     }
 
     /// <summary>

@@ -38,6 +38,10 @@ public static class Messages
         $"The shared folder '{folder}' has no explicit privilege set for any user or group, so OpenMediaVault's default applies. " +
         "Nothing is wrong with the call; tell the user no user or group has been granted or denied access explicitly.";
 
+    public static string NoAclEntries(string folder) =>
+        $"The root of the shared folder '{folder}' has no extended ACL entry for any named user or group; only the owner, group and other permissions apply. " +
+        "Nothing is wrong with the call; tell the user the folder has no extra ACL entries.";
+
     /// <summary>The error a tool returns when OMV could not be asked (or did not answer as expected).</summary>
     public static VaultError ForRpc(OmvRpcException error, string what) => error.Kind switch
     {

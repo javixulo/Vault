@@ -29,14 +29,18 @@ public sealed class SystemTests
 
         var permissions = await vault.Client.CallToolAsync("get_folder_permissions", new Dictionary<string, object?> { ["folder"] = "media" }, cancellationToken: Token);
 
-        Assert.Equal(["system_status", "list_shared_folders", "get_folder_permissions"], tools.Select(t => t.Name));
+        var acl = await vault.Client.CallToolAsync("get_folder_acl", new Dictionary<string, object?> { ["folder"] = "media" }, cancellationToken: Token);
+
+        Assert.Equal(["system_status", "list_shared_folders", "get_folder_permissions", "get_folder_acl"], tools.Select(t => t.Name));
+        Assert.NotEqual(true, acl.IsError);
+        Assert.Equal(2, acl.StructuredContent!.Value.GetProperty("entries").GetArrayLength());
         Assert.NotEqual(true, permissions.IsError);
         Assert.Equal(3, permissions.StructuredContent!.Value.GetProperty("privileges").GetArrayLength());
         Assert.NotEqual(true, status.IsError);
         Assert.Equal("nas-test", status.StructuredContent!.Value.GetProperty("status").GetProperty("hostname").GetString());
         Assert.NotEqual(true, folders.IsError);
         Assert.Equal(3, folders.StructuredContent!.Value.GetProperty("folders").GetArrayLength());
-        Assert.All(omv.Calls, call => Assert.Contains(call, new[] { "Session.login", "System.getInformation", "ShareMgmt.getList", "ShareMgmt.getPrivileges" }));
+        Assert.All(omv.Calls, call => Assert.Contains(call, new[] { "Session.login", "System.getInformation", "ShareMgmt.getList", "ShareMgmt.getPrivileges", "ShareMgmt.getFileACL" }));
     }
 
     [Fact]

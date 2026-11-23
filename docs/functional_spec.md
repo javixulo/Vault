@@ -2,7 +2,7 @@
 
 > Draft in review: use cases and acceptance criteria, one section per tool. Vault is a **read-only** MCP server that wraps the JSON-RPC API of OpenMediaVault (OMV), so an agent can ask about the state of the NAS (permissions, services, disks, users, backups) without shell access.
 >
-> **Three tools are built**, all confirmed against a real OMV 8.5.12 (`get_folder_permissions` was checked by reading the real answer of `ShareMgmt.getPrivileges` on 2026-11-23). Five more (2.4 to 2.8) are specified below but **not built and not confirmed**: their RPC calls (section 4) are the team's best reading of OMV's own source and documentation, not something tested against a server yet (see the open question *Remaining tool catalog*). `list_docker_containers` (2.9) is a bare working title, because which data source it uses is not decided yet (see the open question *Docker containers source*).
+> **Four tools are built**, all confirmed against a real OMV 8.5.12 (`get_folder_permissions` and `get_folder_acl` were checked by reading the real answers of `ShareMgmt.getPrivileges` and `ShareMgmt.getFileACL` on 2026-11-23). Five more (2.5 to 2.9) are specified below but **not built**: their RPC calls (section 4) range from *request seen in the real OMV's own network traffic, response still unconfirmed* (`list_users_and_groups`) to a plain guess from OMV's source and documentation (the rest) — see the open question *Remaining tool catalog*. `list_docker_containers` (2.10) is a bare working title, because which data source it uses is not decided yet (see the open question *Docker containers source*).
 
 ## 1. Information model
 
@@ -29,7 +29,7 @@ Vault keeps no inventory and stores nothing: every answer is read from OMV when 
 | `relative_path` | Path of the folder relative to the file system it lives on |
 | `description` | The comment of the folder in OMV |
 
-This is the folder as OMV defines it. Its permissions and ACLs are not part of it yet (see the open question *Remaining tool catalog*).
+This is the folder as OMV defines it. Its access is read with two other tools: `get_folder_permissions` (OMV's privileges) and `get_folder_acl` (the POSIX ACL of its root).
 
 ### Privilege
 
@@ -40,6 +40,16 @@ An entry of `get_folder_permissions`: what one user or group may do with a share
 | `subject_type` | `user` or `group` |
 | `subject_name` | Name of the user or group |
 | `access` | `read_write`, `read_only` or `deny` |
+
+### ACL entry
+
+An entry of `get_folder_acl`: a named user or group that has its own entry in the extended POSIX ACL of a shared folder's root. The owner, the group and *other* are not entries: they are the base permissions of the result.
+
+| Field | Notes |
+|---|---|
+| `subject_type` | `user` or `group` |
+| `subject_name` | Name of the user or group |
+| `permissions` | Three characters, `r`, `w` and `x` or `-`: `rwx`, `r-x`, `---`. OMV sends them as a number from 0 to 7 (4 read, 2 write, 1 execute) |
 
 ### User
 
@@ -255,7 +265,57 @@ The client asks who can do what with a shared folder.
 
 Note: `folder` is required by the contract but is declared optional in the tool's schema, so a missing value reaches Vault and is rejected with this error instead of a protocol error from the MCP SDK.
 
-### 2.4 Tool `list_users_and_groups`
+### 2.4 Tool `get_folder_acl`
+
+Reads the extended POSIX ACL (`setfacl`/`getfacl`) of a shared folder's own root — the layer OMV keeps separate from the simple privileges of `get_folder_permissions` (OMV's own admin page calls them "Privileges" and "ACL (Access Control List)", two different pages for the same shared folder).
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `folder` | string | Yes | The shared folder's `name`, as `list_shared_folders` returns it |
+
+**Output** (`FolderAclResult`)
+
+| Field | Type | Notes |
+|---|---|---|
+| `folder` | string | The folder asked for |
+| `owner` | text | POSIX owner of the folder's root |
+| `group` | text | POSIX group of the folder's root |
+| `owner_permissions`, `group_permissions`, `other_permissions` | text | The base permissions of the owner, the group and everyone else, as `rwx` / `r-x` / `---` |
+| `entries` | list of ACL entry | The named users and groups that have an entry in the ACL, users first and then groups, each in OMV's order |
+| `message` | text | Set when `entries` is empty: that no named user or group has an entry and only the base permissions apply |
+| `error` | Error | Empty when the call worked. See section 3 and UC-22 |
+
+How it works: resolves `folder` to its uuid the same way `get_folder_permissions` does, then calls `ShareMgmt.getFileACL` with that uuid and `file: "/"` — the ACL of the shared folder's own root, never of a file or subfolder inside it (out of scope for now: Vault has no tool that takes a path inside a folder). OMV answers (checked against a real OMV 8.5.12) with `{file, owner, group, acl: {user, group, other, users, groups}}`: `user`, `group` and `other` are the base permissions as a number from 0 to 7, and `users` and `groups` list **every** user and group of the NAS (system ones too) with `perms` set to the same kind of number when it has an entry in the ACL and `null` when it has none. Vault reports only the ones with a `perms`; the ones with `null` are not entries. An entry Vault cannot read (no name, or a number outside 0 to 7), or base permissions it cannot read, make the whole call fail with `omv_bad_response` rather than being left out, because an access missing from an audit would look like no access. A number sent as text (`"5"`) is read as a number, as everywhere else. A missing `owner` or `group` is reported as empty (`null`), not as a failure: they are information, not an access. The path OMV reports in `file` is not passed on.
+
+#### UC-20 · Read a folder's ACL
+
+**Acceptance criteria**
+
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-20.AC1 | Report what OMV says | The folder exists and OMV reports named ACL entries for its root | The client calls the tool with that folder | Success, with the `owner`, `group` and the three base permissions, and `entries` has one item per named user or group that OMV gives a permission, each with its `permissions`. `message` and `error` are empty |
+| UC-20.AC2 | No named entry | The folder exists and no named user or group has an entry in its ACL | The client calls the tool with that folder | Success, with the owner, group and base permissions, an empty `entries`, and a `message` that says no named entry exists and only the base permissions apply. The call is not an error |
+| UC-20.AC3 | An entry Vault cannot read | OMV sends an ACL entry without a name or with a number outside 0 to 7, or base permissions that are missing or outside 0 to 7 | The client calls the tool | Failed, with `omv_bad_response`, and no partial `entries`. The entry is not left out (unlike UC-03.AC4, because a missing access would look like no access) |
+
+#### UC-21 · Folder not found
+
+**Acceptance criteria**
+
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-21.AC1 | No such folder | `folder` does not match any shared folder OMV has. The match is exact and case-sensitive, so `Media` does not match `media` | The client calls the tool | Failed, with `not_found`. The message names the folder asked for and says to check it with `list_shared_folders` |
+
+#### UC-22 · Reject invalid arguments
+
+**Acceptance criteria**
+
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-22.AC1 | No folder given | | The client calls the tool with `folder` blank or missing | Rejected, with `invalid_arguments` that names `folder`. OMV is not called |
+
+### 2.5 Tool `list_users_and_groups`
 
 Lists the OMV users and groups, and which group each user belongs to — the other half of the piece that `get_folder_permissions` needs to be read against the permissions document.
 
@@ -278,7 +338,7 @@ Lists the OMV users and groups, and which group each user belongs to — the oth
 | UC-13.AC1 | Report what OMV says | OMV reports its users and groups | The client calls the tool | Success, `users` and `groups` each with every entry and field OMV reported. `error` is empty |
 | UC-13.AC2 | A field OMV does not report | A user or group entry is missing a field OMV may not send (for example `full_name`) | The client calls the tool | Success, that field is empty on that entry. The call is not an error |
 
-### 2.5 Tool `list_services`
+### 2.6 Tool `list_services`
 
 Reports whether SMB, NFS, SSH, Docker and the other OMV-managed services are enabled and running. The exact set of services OMV exposes this way is not confirmed yet (see the open question *Remaining tool catalog*).
 
@@ -300,7 +360,7 @@ Reports whether SMB, NFS, SSH, Docker and the other OMV-managed services are ena
 | UC-14.AC1 | Report what OMV says | OMV reports every service's state | The client calls the tool | Success, and `services` has one entry per known service, each with `enabled` and `running`. `error` is empty |
 | UC-14.AC2 | One service cannot be read | OMV answers for every service except one | The client calls the tool | Success. The service that failed has `running` set to `null`; every other service is reported normally. The call is not an error |
 
-### 2.6 Tool `list_disks`
+### 2.7 Tool `list_disks`
 
 Reports the disks OMV sees, with their SMART status.
 
@@ -324,7 +384,7 @@ Reports the disks OMV sees, with their SMART status.
 
 RAID status is not part of this tool yet; see the open question *Remaining tool catalog*.
 
-### 2.7 Tool `list_scheduled_tasks`
+### 2.8 Tool `list_scheduled_tasks`
 
 Lists the OMV cron jobs (scheduled tasks and backups) and the result of their last run.
 
@@ -355,7 +415,7 @@ Lists the OMV cron jobs (scheduled tasks and backups) and the result of their la
 |---|---|---|---|---|
 | UC-17.AC1 | None configured | OMV has no cron jobs | The client calls the tool | Success, an empty list, and a `message` that says OMV has none and that nothing is wrong with the call |
 
-### 2.8 Tool `list_pending_updates`
+### 2.9 Tool `list_pending_updates`
 
 Lists the system updates OMV has pending.
 
@@ -385,7 +445,7 @@ Lists the system updates OMV has pending.
 |---|---|---|---|---|
 | UC-19.AC1 | Nothing pending | OMV has no update pending | The client calls the tool | Success, an empty list, and a `message` that says the system is up to date |
 
-### 2.9 Tool `list_docker_containers` (working title)
+### 2.10 Tool `list_docker_containers` (working title)
 
 Not yet specified, and its data source is not decided either (OMV's own Docker plugin, if any; a socket is very unlikely to be acceptable for a read-only MCP). See the open question *Docker containers source*.
 
@@ -491,15 +551,21 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 |---|---|---|---|
 | `Session.login` | none (Vault's own login) | Authenticates the account and starts the session | It changes no NAS configuration: it only creates the session of Vault |
 | `System.getInformation` | `system_status` | Returns hostname, OMV version, kernel, CPU, memory and uptime | A `get` that reads the state of the machine |
-| `ShareMgmt.getList` | `list_shared_folders`, `get_folder_permissions` (to find a folder's uuid) | Returns the shared folders, paged with a start and a limit | A `get` that reads the configured list |
+| `ShareMgmt.getList` | `list_shared_folders`, `get_folder_permissions` and `get_folder_acl` (to find a folder's uuid) | Returns the shared folders, paged with a start and a limit | A `get` that reads the configured list |
 | `ShareMgmt.getPrivileges` | `get_folder_permissions` | Returns, for a shared folder given by uuid, one entry per OMV user and group: `type`, `id`, `name` and `perms` (0 deny, 5 read-only, 7 read-write, or `null` when no privilege is set) | A `get` that reads the configured privileges |
+| `ShareMgmt.getFileACL` (`params: {uuid, file: "/"}`) | `get_folder_acl` | Returns, for a shared folder given by uuid, the POSIX `owner` and `group` of its root and an `acl` with the base permissions (`user`, `group`, `other`, each 0 to 7) and one entry per OMV user and group in `users` and `groups`, with `perms` (0 to 7, or `null` when it has no entry) | A `get` that reads the configured ACL; does not run `setfacl` |
 
-**Not confirmed yet** — the team's best reading of OMV's own source and documentation for the tools of sections 2.4 to 2.8, never tested against a server. A call here can change name, parameters or disappear once checked; see the open question *Remaining tool catalog*. None of them is exposed in the code yet; when a call is confirmed, its row moves to the table above.
+**Request seen in the real OMV's own network traffic, response not confirmed yet** — the user read these from the browser's network tab while using OMV's own admin pages on 2026-11-23, so the service, method and parameters below are real; nobody has read a real *answer* yet, so the exact fields `list_users_and_groups` reports are still a guess (section 1).
 
 | RPC call | Used by | What it does | Why it is read-only |
 |---|---|---|---|
-| `UserMgmt.getUsers` | `list_users_and_groups` | Returns the OMV users, with the groups each belongs to | A `get` that reads the configured list |
-| `UserMgmt.getGroups` | `list_users_and_groups` | Returns the OMV groups and their members | A `get` that reads the configured list |
+| `UserMgmt.enumerateAllUsers` (`params: {detail: "basic"}`) | `list_users_and_groups` | Returns the OMV users | A `get` that reads the configured list |
+| `UserMgmt.enumerateAllGroups` | `list_users_and_groups` | Returns the OMV groups | A `get` that reads the configured list |
+
+**Not confirmed at all yet** — the team's best reading of OMV's own source and documentation for the rest of sections 2.6 to 2.9, never tested against a server and never seen in real traffic either. A call here can change name, parameters or disappear once checked; see the open question *Remaining tool catalog*. None of the calls on this page is exposed in the code yet; when a call is confirmed (request or, better, a real response), its row moves up.
+
+| RPC call | Used by | What it does | Why it is read-only |
+|---|---|---|---|
 | `Smb.getStatus`, `Nfs.getStatus`, `Ssh.getStatus`, and one per other known service | `list_services` | Returns whether that service is enabled and running | Each is a `get` that reads the state of one service; which services OMV exposes this way is itself unconfirmed |
 | `DiskMgmt.enumerateDevices` | `list_disks` | Returns the disks OMV sees | A `get` that reads the configured list |
 | `Smart.getList` or `Smart.getInformation` (one per disk) | `list_disks` | Returns the SMART status of a disk | A `get` that reads SMART data; does not run a new SMART test |
@@ -511,6 +577,6 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 | # | Title | Description | Status | Priority | Comments |
 |---|---|---|---|---|---|
 | 1 | OMV version | Whether the services Vault calls (`Session`, `System`, `ShareMgmt`) keep the same methods, parameters and answer fields as OMV is updated. | Half-way | High | The real NAS runs OMV 8.5.12-1 (a UGREEN DXP2800, updated regularly), so Vault targets OMV 8.x. Checked against OMV 8.5.1 in a community Docker image (no systemd, no disks, no shared folders): the login answer (`status: "authenticated"`, not `authenticated: true`), the session cookie, HTTP 401 for an invalid session, HTTP 400 for a bad login and the fields of `System.getInformation` are confirmed, and Vault works against it. Also checked against the real 8.5.12-1 with an account in the group `openmediavault-admin`: both tools work and `ShareMgmt.getList` returns `reldirpath` and `comment` as assumed. Left: whether an account outside that group can call these methods (the real test was not done without the group), and how to notice that an OMV update changed an answer. |
-| 2 | Remaining tool catalog | Tools 2.3 to 2.8 (`get_folder_permissions`, `list_users_and_groups`, `list_services`, `list_disks`, `list_scheduled_tasks`, `list_pending_updates`) are now specified with their input, output and acceptance criteria. What is still open: every RPC call in their part of section 4 is a guess from OMV's source and documentation, not confirmed against a real server (unlike `Session`, `System` and `ShareMgmt.getList`, settled by the question *OMV version*); `list_services`'s exact set of services and calls is the least certain of all of them; and a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). Only `get_folder_permissions` is built so far, and confirmed against the real OMV 8.5.12 (its real answer differed from the first reading: it lists every user and group, with `perms` null when none is set); the other five are not. | Half-way | High | Confirm each RPC call against the real NAS (one at a time, the same way `system_status` and `list_shared_folders` were) before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
+| 2 | Remaining tool catalog | Tools 2.5 to 2.9 (`list_users_and_groups`, `list_services`, `list_disks`, `list_scheduled_tasks`, `list_pending_updates`) are specified with their input, output and acceptance criteria but not built; `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: for `list_users_and_groups`, the user read the real RPC request OMV's own admin pages send (`UserMgmt.enumerateAllUsers` with `{detail: "basic"}`; `UserMgmt.enumerateAllGroups`) from the browser's network tab on 2026-11-23, so those two calls are real, but nobody has read a real *response* yet, so the fields of *User* and *Group* are still a guess. For `list_services`, `list_disks`, `list_scheduled_tasks` and `list_pending_updates`, even the calls themselves are unconfirmed; `list_services`'s exact set of services and calls is the least certain of all of them. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: read a real response for the two `UserMgmt.enumerateAll*` calls (Vault itself can do it against the real NAS once the calls are exposed, as was done for `getFileACL`), and fix the output models in section 1 before building `list_users_and_groups`. Confirm each remaining call against the real NAS, one at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
 | 3 | Credentials secret | How the OMV account reaches the container. Settled: a Docker secret mounted as a file (`secrets/omv_credentials.json`, see `.example.json`), never an environment variable or the repository; and the file is the JSON object `{"username", "password"}` proposed in the technical spec. Still open: who creates and rotates the secret, and the file permissions for the non-root user the container runs as. | Half-way | Medium | Left to settle: who creates and rotates the secret, and the file permissions for the container's user (technical spec, section 4). |
 | 4 | Docker containers source | Whether the status of the containers on the NAS comes from OMV (its Docker plugin, if it has an RPC for it), from the Docker socket or from Portainer. It is probably outside the RPC of OMV, and a socket gives much more access than Vault should have. | Open | Medium | Decide before building the containers tool. |

@@ -16,7 +16,7 @@ public sealed partial class SpecAllowlistTests
     [GeneratedRegex(@"^#{1,3} .+$", RegexOptions.Multiline)]
     private static partial Regex AnyHeading();
 
-    [GeneratedRegex(@"^\|\s*`(?<name>[A-Za-z]+\.[A-Za-z]+)`\s*\|", RegexOptions.Multiline)]
+    [GeneratedRegex(@"^\|\s*`(?<name>[A-Za-z]+\.[A-Za-z]+)`[^|]*\|", RegexOptions.Multiline)]
     private static partial Regex RpcRow();
 
     [Fact]
@@ -33,9 +33,10 @@ public sealed partial class SpecAllowlistTests
             section = section[..next.Index];
         }
 
-        // The section has a "Confirmed" table and a "Not confirmed yet" table; the latter lists calls of tools not built yet.
-        var split = section.IndexOf("Not confirmed yet", StringComparison.Ordinal);
-        Assert.True(split > 0, "The RPC calls section no longer separates the confirmed calls from the 'Not confirmed yet' ones.");
+        // The section has a "Confirmed" table and then the tables of calls not confirmed against a real answer yet (first the
+        // ones whose request was seen in OMV's own traffic, then the plain guesses); those list calls of tools not built yet.
+        var split = section.IndexOf("Request seen in the real OMV's own network traffic", StringComparison.Ordinal);
+        Assert.True(split > 0, "The RPC calls section no longer separates the confirmed calls from the ones not confirmed yet.");
         string[] Rows(string text) => [.. RpcRow().Matches(text).Select(m => m.Groups["name"].Value).Where(n => n != "Session.login")];
         var confirmed = Rows(section[..split]);
         var unconfirmed = Rows(section[split..]);
