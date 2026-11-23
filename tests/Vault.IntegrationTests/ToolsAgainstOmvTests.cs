@@ -29,6 +29,29 @@ public sealed class ToolsAgainstOmvTests
     }
 
     [Fact]
+    [Trait("Criteria", "UC-10.AC1, UC-10.AC2, UC-11.AC1, UC-07.AC1")]
+    public async Task Folder_permissions_are_read_by_name_and_only_the_documented_calls_reach_OMV()
+    {
+        await using var env = await OmvTestEnvironment.StartAsync();
+        var reader = new FolderPermissionsReader(env.Client, NullLogger<FolderPermissionsReader>.Instance);
+
+        var media = await reader.ReadAsync("media", Token);
+        var photos = await reader.ReadAsync("photos", Token);
+        var missing = await reader.ReadAsync("nope", Token);
+
+        // OMV lists users first, then groups, and the fake leaves out those with perms null.
+        Assert.Equal(["read_only", "deny", "read_write"], media.Privileges.Select(p => p.Access));
+        Assert.Equal(["kid", "guest", "family"], media.Privileges.Select(p => p.SubjectName));
+        Assert.True(photos.Ok);
+        Assert.Empty(photos.Privileges);
+        Assert.NotNull(photos.Message);
+        Assert.Equal("not_found", missing.Error!.Code);
+        Assert.Equal(
+            ["Session.login", "ShareMgmt.getList", "ShareMgmt.getPrivileges", "ShareMgmt.getList", "ShareMgmt.getPrivileges", "ShareMgmt.getList"],
+            env.Server.Calls);
+    }
+
+    [Fact]
     [Trait("Criteria", "UC-03.AC2, UC-03.AC3")]
     public async Task A_page_of_the_list_says_whether_there_is_more()
     {

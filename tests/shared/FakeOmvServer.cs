@@ -13,9 +13,9 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c> and <c>ShareMgmt.getList</c>, and it records every call it receives.
-/// Its login, session and error answers (and the shape of <c>System.getInformation</c>) were checked against a real OMV 8.5.1;
-/// the shared folder entries were not, because that OMV had none (open question *OMV version*).
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c> and <c>ShareMgmt.getPrivileges</c>, and it
+/// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
+/// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
 public sealed class FakeOmvServer : IAsyncDisposable
 {
@@ -47,6 +47,16 @@ public sealed class FakeOmvServer : IAsyncDisposable
         ("photos", "11111111-0000-0000-0000-000000000002", "photos/", "Immich library"),
         ("backups", "11111111-0000-0000-0000-000000000003", "backups/", ""),
     ];
+
+    /// <summary>
+    /// The privileges the fake knows, by shared folder name (the fake looks the uuid up). <c>Perms</c> is OMV's number:
+    /// 0 deny, 5 read-only, 7 read and write. The shape of <c>ShareMgmt.getPrivileges</c> was checked against a real
+    /// OMV 8.5.12: every user and group is listed, with <c>perms</c> null when no privilege is set.
+    /// </summary>
+    public Dictionary<string, List<(string Type, string Name, int Perms)>> Privileges { get; } = new()
+    {
+        ["media"] = [("group", "family", 7), ("user", "kid", 5), ("user", "guest", 0)],
+    };
 
     /// <summary>Every RPC the fake received, as <c>Service.method</c>, in order.</summary>
     public IReadOnlyList<string> Calls => [.. _calls];
@@ -133,6 +143,7 @@ public sealed class FakeOmvServer : IAsyncDisposable
                 uptime = 86_400.5,
             }),
             ("ShareMgmt", "getList") => SharedFolderList(parameters),
+            ("ShareMgmt", "getPrivileges") => FolderPrivileges(parameters),
             _ => Error(1, $"Unknown method {service}.{method}."),
         };
     }
@@ -162,6 +173,26 @@ public sealed class FakeOmvServer : IAsyncDisposable
             .Select(f => new { uuid = f.Uuid, name = f.Name, reldirpath = f.RelPath, comment = f.Comment, mntentref = "22222222-0000-0000-0000-000000000000" })
             .ToList();
         return Ok(new { total = SharedFolders.Count, data });
+    }
+
+    private IResult FolderPrivileges(JsonElement parameters)
+    {
+        var uuid = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("uuid", out var u) ? u.GetString() : null;
+        var folder = SharedFolders.FirstOrDefault(f => f.Uuid == uuid);
+        if (folder.Name is null)
+        {
+            return Error(1, "Shared folder not found.");
+        }
+
+        // As a real OMV 8.5.12 does: one entry for every user and group, perms null when none is set.
+        var set = Privileges.TryGetValue(folder.Name, out var list) ? list : [];
+        var subjects = new[] { ("user", "ana"), ("user", "kid"), ("user", "guest"), ("group", "family"), ("group", "admins") };
+        return Ok(subjects.Select(s => new
+        {
+            type = s.Item1,
+            name = s.Item2,
+            perms = set.Any(p => p.Type == s.Item1 && p.Name == s.Item2) ? (int?)set.First(p => p.Type == s.Item1 && p.Name == s.Item2).Perms : null,
+        }).ToList());
     }
 
     private static IResult Ok(object response) =>

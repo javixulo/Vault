@@ -33,9 +33,17 @@ public sealed partial class SpecAllowlistTests
             section = section[..next.Index];
         }
 
-        var documented = RpcRow().Matches(section).Select(m => m.Groups["name"].Value).Where(n => n != "Session.login").Order().ToList();
+        // The section has a "Confirmed" table and a "Not confirmed yet" table; the latter lists calls of tools not built yet.
+        var split = section.IndexOf("Not confirmed yet", StringComparison.Ordinal);
+        Assert.True(split > 0, "The RPC calls section no longer separates the confirmed calls from the 'Not confirmed yet' ones.");
+        string[] Rows(string text) => [.. RpcRow().Matches(text).Select(m => m.Groups["name"].Value).Where(n => n != "Session.login")];
+        var confirmed = Rows(section[..split]);
+        var unconfirmed = Rows(section[split..]);
         var exposed = OmvRpcCall.Exposed.Select(c => c.Name).Order().ToList();
 
-        Assert.Equal(exposed, documented);
+        // Nothing is exposed that the spec does not document, and every confirmed call is exposed. A call of the second
+        // table may be exposed once its tool is built (and stay there until it is checked against a real OMV).
+        Assert.Empty(exposed.Except(confirmed.Concat(unconfirmed)));
+        Assert.Empty(confirmed.Except(exposed));
     }
 }

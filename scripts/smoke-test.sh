@@ -8,7 +8,7 @@ set -euo pipefail
 
 image="${1:-vault-mcp:latest}"
 name="vault-smoke-$$"
-expected_tools=(system_status list_shared_folders)
+expected_tools=(system_status list_shared_folders get_folder_permissions)
 
 secret="$(mktemp)"
 cleanup() {

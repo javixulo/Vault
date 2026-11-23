@@ -18,7 +18,9 @@ internal sealed class StubOmv : IOmvRpcClient
     public Func<OmvRpcCall, JsonElement> Answer { get; set; } = call =>
         call == OmvRpcCall.SystemInformation
             ? Parse("""{"hostname":"nas","version":"7.4.0","kernel":"Linux 6.1","cpuModelName":"N100","cpuUtilization":3.5,"memTotal":8000,"memUsed":2000,"uptime":3600}""")
-            : Parse("""{"total":3,"data":[{"uuid":"u1","name":"media","reldirpath":"media/","comment":"Movies"},{"uuid":"u2","name":"photos","reldirpath":"photos/"},{"uuid":"u3","name":"backups","reldirpath":"backups/"}]}""");
+            : call == OmvRpcCall.SharedFolderPrivileges
+                ? Parse("""[{"type":"group","name":"family","perms":7},{"type":"user","name":"kid","perms":5},{"type":"user","name":"guest","perms":0}]""")
+                : Parse("""{"total":3,"data":[{"uuid":"u1","name":"media","reldirpath":"media/","comment":"Movies"},{"uuid":"u2","name":"photos","reldirpath":"photos/"},{"uuid":"u3","name":"backups","reldirpath":"backups/"}]}""");
 
     public Task<JsonElement> CallAsync(OmvRpcCall rpcCall, object? parameters, CancellationToken cancellationToken = default)
     {

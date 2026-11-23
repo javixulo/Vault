@@ -27,7 +27,7 @@ public sealed class ToolAnnotationsContractTests : IAsyncLifetime
     {
         var names = (await _server.ToolsAsync()).Select(t => t.Name).ToList();
 
-        Assert.Equal(["system_status", "list_shared_folders"], names);
+        Assert.Equal(["system_status", "list_shared_folders", "get_folder_permissions"], names);
     }
 
     // Catches: a tool that is not marked read-only (the reason Vault exists), or has no title, or reaches outside systems.
@@ -54,6 +54,7 @@ public sealed class ToolAnnotationsContractTests : IAsyncLifetime
         {
             ["system_status"] = [],
             ["list_shared_folders"] = ["limit", "offset"],
+            ["get_folder_permissions"] = ["folder"],
         };
 
         foreach (var tool in await _server.ToolsAsync())
@@ -105,9 +106,9 @@ public sealed class ToolAnnotationsContractTests : IAsyncLifetime
     {
         await using var server = VaultTestServer.Create(new StubOmv { Answer = _ => throw new OmvRpcException(kind, "detail only for the logs", 7) });
 
-        foreach (var tool in new[] { "system_status", "list_shared_folders" })
+        foreach (var tool in new[] { "system_status", "list_shared_folders", "get_folder_permissions" })
         {
-            var result = await server.CallAsync(tool);
+            var result = await server.CallAsync(tool, tool == "get_folder_permissions" ? new() { ["folder"] = "media" } : null);
 
             Assert.True(result.IsError, tool);
             Assert.Equal(code, result.StructuredContent!.Value.GetProperty("error").GetProperty("code").GetString());
