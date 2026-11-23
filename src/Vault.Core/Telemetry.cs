@@ -14,6 +14,7 @@ public static class Telemetry
     public const string RpcService = "rpc.service";
     public const string RpcMethod = "rpc.method";
     public const string FoldersCount = "folders.count";
+    public const string PrivilegesCount = "privileges.count";
     public const string ErrorType = "error.type";
 
     public static readonly ActivitySource Source = new(SourceName);

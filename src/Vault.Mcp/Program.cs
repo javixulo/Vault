@@ -62,6 +62,7 @@ builder.Services.AddSingleton<IOmvRpcClient>(sp =>
 });
 builder.Services.AddSingleton<SystemStatusReader>();
 builder.Services.AddSingleton<SharedFolderLister>();
+builder.Services.AddSingleton<FolderPermissionsReader>();
 
 // The contract uses snake_case (technical spec, section 6). Outcomes are plain results, never protocol errors.
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -76,7 +77,8 @@ builder.Services
     .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
     .WithRequestFilters(filters => filters.AddCallToolFilter(ToolErrorFlag.Apply))
     .WithTools<SystemStatusTool>(json)
-    .WithTools<ListSharedFoldersTool>(json);
+    .WithTools<ListSharedFoldersTool>(json)
+    .WithTools<GetFolderPermissionsTool>(json);
 
 var app = builder.Build();
 

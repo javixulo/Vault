@@ -26,6 +26,18 @@ public static class Messages
             ? "OpenMediaVault has no shared folders defined. Nothing is wrong with the call; tell the user the NAS has none."
             : $"The offset {offset} is past the end of the list, which has {total} shared folders. Call again with an offset below {total}, or leave it out.";
 
+    public const string BlankFolder =
+        "The folder argument is missing or blank: it must be the name of a shared folder, as list_shared_folders returns it. " +
+        "Call the tool again with the folder name.";
+
+    public static string FolderNotFound(string folder) =>
+        $"OpenMediaVault has no shared folder named '{folder}'. Nothing was changed. " +
+        "Check the exact name (it is case-sensitive) with list_shared_folders and call again with it.";
+
+    public static string NoPrivileges(string folder) =>
+        $"The shared folder '{folder}' has no explicit privilege set for any user or group, so OpenMediaVault's default applies. " +
+        "Nothing is wrong with the call; tell the user no user or group has been granted or denied access explicitly.";
+
     /// <summary>The error a tool returns when OMV could not be asked (or did not answer as expected).</summary>
     public static VaultError ForRpc(OmvRpcException error, string what) => error.Kind switch
     {

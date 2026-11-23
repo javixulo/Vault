@@ -50,9 +50,34 @@ public sealed record SharedFoldersResult(
     public static SharedFoldersResult Failure(VaultError error) => new([], 0, false, null, error);
 }
 
+/// <summary>What one user or group may do with a shared folder, as OMV's "Shared Folder Privileges" assigns it.</summary>
+/// <param name="SubjectType"><c>user</c> or <c>group</c>.</param>
+/// <param name="SubjectName">Name of the user or group.</param>
+/// <param name="Access"><c>read_write</c>, <c>read_only</c> or <c>deny</c>.</param>
+public sealed record Privilege(string SubjectType, string SubjectName, string Access);
+
+/// <summary>Outcome of <c>get_folder_permissions</c>. <c>Message</c> is set when there is no explicit privilege.</summary>
+public sealed record FolderPermissionsResult(
+    string Folder,
+    IReadOnlyList<Privilege> Privileges,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static FolderPermissionsResult Found(string folder, IReadOnlyList<Privilege> privileges) => new(folder, privileges);
+
+    public static FolderPermissionsResult Empty(string folder, string message) => new(folder, [], message);
+
+    public static FolderPermissionsResult Failure(string folder, VaultError error) => new(folder, [], null, error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";
+    public const string NotFound = "not_found";
     public const string OmvUnreachable = "omv_unreachable";
     public const string OmvAuthFailed = "omv_auth_failed";
     public const string OmvRpcError = "omv_rpc_error";
