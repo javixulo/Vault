@@ -158,20 +158,20 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds t
  MCP client (Claude, ...)
         │  Streamable HTTP  (/mcp)
         ▼
-┌──────────────────────────────────────────────┐
+┌────────────────────────────────────────────┐
 │ Vault.Mcp   ASP.NET Core host              │
 │   tool classes (thin: bind args, call a    │
 │   service, return its result)              │
-└──────────────────┬───────────────────────┘
+└──────────────────┬─────────────────────────┘
                    ▼
-┌──────────────────────────────────────────────┐
+┌────────────────────────────────────────────┐
 │ Vault.Core   all the logic                 │
 │   services: SystemStatusReader,            │
 │   SharedFolderLister,                      │
 │   FolderPermissionsReader                  │
-│   port: IOmvRpcClient  ── OmvRpcCall        │
+│   port: IOmvRpcClient  ── OmvRpcCall       │
 │   (a fixed list of read-only calls)        │
-└──────────────────┬───────────────────────┘
+└──────────────────┬─────────────────────────┘
                    ▼  POST /rpc.php (Session.login, then the call)
              OpenMediaVault
 ```
