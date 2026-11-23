@@ -1,0 +1,213 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Run the slowest level (system tests) by hand on any branch, for example before merging a risky pull request.
+  workflow_dispatch:
+  # Every 15 days (the 1st and the 16th of each month; cron cannot express an exact interval). The pipeline depends on
+  # things the code does not control (base images, NuGet): a run with no change catches a moved dependency or a changed
+  # base image. It also runs the system tests.
+  schedule:
+    - cron: "0 5 1,16 * *"
+
+permissions:
+  contents: read
+
+# A new push to a pull request stops the obsolete run. Runs on main and scheduled runs are never cancelled.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # One build. Its artifact is what the three test jobs run: they do not check out, restore or compile anything.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build -c Release
+
+      # The test projects are self-contained executables: each bin/Release folder holds the tests, the code under test,
+      # its dependencies and what the tests carry with them (the functional spec). With global.json (the SDK version) and
+      # the script that runs a level, nothing else is needed to run them. A tar keeps the executable bits that
+      # upload-artifact would drop.
+      - name: Pack the test executables
+        run: tar -czf tests.tar global.json scripts/ci-run-tests.sh tests/*/bin/Release
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tests
+          path: tests.tar
+          retention-days: 1
+
+  # Unit tests: pure logic, no disk, network or database.
+  unit-tests:
+    name: Unit tests
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tests
+
+      - name: Unpack the test executables
+        run: tar -xzf tests.tar
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: Test
+        run: bash scripts/ci-run-tests.sh Vault.UnitTests
+
+      - name: Upload the test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results-unit
+          path: test-results
+          retention-days: 7
+
+  # Integration tests: the RPC client and the services over real HTTP against a stand-in of the OMV RPC endpoint, and the
+  # startup validation with real files.
+  integration-tests:
+    name: Integration tests
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tests
+
+      - name: Unpack the test executables
+        run: tar -xzf tests.tar
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: Test
+        run: bash scripts/ci-run-tests.sh Vault.IntegrationTests
+
+      - name: Upload the test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results-integration
+          path: test-results
+          retention-days: 7
+
+  # Contract tests: the real server in process, talked to with an MCP client over HTTP.
+  contract-tests:
+    name: Contract tests
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # The only job that checks out: WebApplicationFactory resolves the content root of the server project
+      # (src/Vault.Mcp) from the source tree.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: src/Vault.Mcp
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tests
+
+      - name: Unpack the test executables
+        run: tar -xzf tests.tar
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: Test
+        run: bash scripts/ci-run-tests.sh Vault.ContractTests
+
+      - name: Upload the test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results-contract
+          path: test-results
+          retention-days: 7
+
+  # The Docker image is another artifact, with its own build (the Dockerfile compiles by itself), that the jobs above never
+  # touch. It is built but not pushed anywhere. A smoke test checks that it starts, passes its startup validation and lists
+  # the tools; then the system tests run complete flows against it. They are the slowest level, so they do not run on pull
+  # requests: they run on pushes to main, on the scheduled run and when launched by hand (workflow_dispatch, for example on
+  # a branch before merging). It needs `build` only for the system test executable.
+  image:
+    name: Image and system tests
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Build the image
+        run: docker build -t vault-mcp:ci .
+
+      - name: Smoke test
+        run: scripts/smoke-test.sh vault-mcp:ci
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: github.event_name != 'pull_request'
+        with:
+          name: tests
+
+      - name: Unpack the test executables
+        if: github.event_name != 'pull_request'
+        run: tar -xzf tests.tar
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        if: github.event_name != 'pull_request'
+        with:
+          global-json-file: global.json
+
+      - name: System tests
+        if: github.event_name != 'pull_request'
+        env:
+          VAULT_SYSTEM_IMAGE: vault-mcp:ci
+        run: bash scripts/ci-run-tests.sh Vault.SystemTests
+
+      - name: Upload the test results
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results-system
+          path: test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The only check the branch protection of main must require. It depends on every job and fails unless all of them
+  # succeeded: a skipped or cancelled job is not a pass. Adding or renaming a job above means touching `needs` here, and
+  # nothing in the protection.
+  ci-ok:
+    name: CI result
+    if: always()
+    needs: [build, unit-tests, integration-tests, contract-tests, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$RESULTS" | jq -e 'all(.[]; .result == "success")' > /dev/null; then
+            echo "All jobs succeeded."
+          else
+            echo "::error title=CI::At least one job did not succeed (failed, cancelled or skipped). See the list above and open that job."
+            exit 1
+          fi
