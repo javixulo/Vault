@@ -1,0 +1,17 @@
+# Secrets. The OMV account lives in secrets/ and is never committed (only the example is).
+.env
+.github-token
+*.token
+/secrets/*
+!/secrets/omv_credentials.example.json
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# macOS
+.DS_Store
+
+TestResults/
