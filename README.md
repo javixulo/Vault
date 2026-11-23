@@ -4,7 +4,7 @@
 
 Vault is a small, **read-only** [MCP](https://modelcontextprotocol.io) server that wraps the JSON-RPC API of [OpenMediaVault](https://www.openmediavault.org) (OMV). It plugs into your AI assistant and lets it look at the real state of the NAS (system, shared folders and, as the catalog grows, permissions, services, disks, users and backups) instead of trusting documentation that may be out of date.
 
-> **Status: skeleton.** Two tools are built to prove the design end to end: `system_status` and `list_shared_folders`. The rest of the catalog is still to be specified (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)). Both tools have been run against OMV 8.5.12 (a real NAS) and 8.5.1 (a Docker image); other versions are untested.
+> **Status: skeleton.** Three tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders` and `get_folder_permissions` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); other OMV versions are untested.
 
 ## Tools
 
@@ -14,6 +14,7 @@ Every tool is **read-only**: none changes anything on the NAS.
 |---|---|---|
 | `system_status` | Hostname, OMV version, kernel, CPU, memory and uptime | "How is the NAS doing?" |
 | `list_shared_folders` | The shared folders OMV defines, one page at a time (`limit`, `offset`, `total`, `has_more`) | "Which shared folders does the NAS have?" |
+| `get_folder_permissions` | The privileges OMV has set for one shared folder: each user or group and its access (`read_write`, `read_only`, `deny`) | "Who can write to `media`?" |
 
 ## Read-only by construction
 
@@ -161,15 +162,16 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds t
 │ Vault.Mcp   ASP.NET Core host              │
 │   tool classes (thin: bind args, call a    │
 │   service, return its result)              │
-└──────────────────┬─────────────────┘
+└──────────────────┬───────────────────────┘
                    ▼
 ┌──────────────────────────────────────────────┐
 │ Vault.Core   all the logic                 │
 │   services: SystemStatusReader,            │
-│   SharedFolderLister                       │
-│   port: IOmvRpcClient  ── OmvRpcCall       │
+│   SharedFolderLister,                      │
+│   FolderPermissionsReader                  │
+│   port: IOmvRpcClient  ── OmvRpcCall        │
 │   (a fixed list of read-only calls)        │
-└──────────────────┬─────────────┘
+└──────────────────┬───────────────────────┘
                    ▼  POST /rpc.php (Session.login, then the call)
              OpenMediaVault
 ```
