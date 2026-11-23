@@ -14,8 +14,9 @@ namespace Vault.Core.Rpc;
 public sealed class OmvRpcClient(HttpClient http, Uri endpoint, IOmvCredentialsProvider credentials, ILogger<OmvRpcClient> logger) : IOmvRpcClient, IDisposable
 {
     /// <summary>
-    /// Codes of the RPC error object that mean "the session is not (or no longer) valid". Not yet confirmed against a real
-    /// OMV 7/8 (open question *OMV version*); an HTTP 401 or 403 counts too.
+    /// Codes of the RPC error object that mean "the session is not (or no longer) valid". OMV 8.5 does not use them (it
+    /// answers HTTP 401 with code 0 and "Session not authenticated."), so the HTTP status is what counts; these two stay as a
+    /// guess for other versions.
     /// </summary>
     private static readonly int[] SessionErrorCodes = [5001, 5002];
 
@@ -105,12 +106,13 @@ public sealed class OmvRpcClient(HttpClient http, Uri endpoint, IOmvCredentialsP
             throw new OmvRpcException(OmvRpcErrorKind.AuthFailed, $"OMV refused the login of '{account.Username}': {error.Message}", error.RpcCode, error);
         }
 
+        // OMV 8 answers {"username", "status": "authenticated", "permissions", "sessionid"}; the older shape was {"authenticated": true}.
         var authenticated = response.ValueKind == JsonValueKind.Object
-            && response.TryGetProperty("authenticated", out var flag)
-            && flag.ValueKind == JsonValueKind.True;
+            && ((response.TryGetProperty("authenticated", out var flag) && flag.ValueKind == JsonValueKind.True)
+                || response.ReadString("status") == "authenticated");
         if (!authenticated)
         {
-            throw new OmvRpcException(OmvRpcErrorKind.AuthFailed, $"OMV did not authenticate '{account.Username}' (authenticated is not true).");
+            throw new OmvRpcException(OmvRpcErrorKind.AuthFailed, $"OMV did not authenticate '{account.Username}' (the login answer does not say authenticated).");
         }
 
         LogLoggedIn(account.Username);

@@ -14,11 +14,12 @@ namespace Vault.TestSupport;
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
 /// <c>Session.login</c>, <c>System.getInformation</c> and <c>ShareMgmt.getList</c>, and it records every call it receives.
-/// What it answers is written from the documentation and forum posts, not from a real OMV 7/8 (open question *OMV version*).
+/// Its login, session and error answers (and the shape of <c>System.getInformation</c>) were checked against a real OMV 8.5.1;
+/// the shared folder entries were not, because that OMV had none (open question *OMV version*).
 /// </summary>
 public sealed class FakeOmvServer : IAsyncDisposable
 {
-    public const string SessionCookie = "X-OPENMEDIAVAULT-SESSIONID";
+    public const string SessionCookie = "OPENMEDIAVAULT-SESSIONID";
 
     private readonly WebApplication _app;
     private readonly ConcurrentDictionary<string, byte> _sessions = new();
@@ -95,7 +96,8 @@ public sealed class FakeOmvServer : IAsyncDisposable
 
         if (!context.Request.Cookies.TryGetValue(SessionCookie, out var session) || !_sessions.ContainsKey(session))
         {
-            return Error(5001, "Session not authenticated.");
+            // As OMV 8.5 does: HTTP 401, code 0.
+            return Error(0, "Session not authenticated.", 401);
         }
 
         if (FailWithRpcCode is { } code)
@@ -117,9 +119,9 @@ public sealed class FakeOmvServer : IAsyncDisposable
                 kernel = "Linux 6.1.0-test",
                 cpuModelName = "Test CPU @ 2.0GHz",
                 cpuUtilization = 12.5,
-                memTotal = 8_000_000_000L,
+                memTotal = "8000000000",
                 memUsed = "2000000000",
-                uptime = 86_400,
+                uptime = 86_400.5,
             }),
             ("ShareMgmt", "getList") => SharedFolderList(parameters),
             _ => Error(1, $"Unknown method {service}.{method}."),
@@ -133,13 +135,14 @@ public sealed class FakeOmvServer : IAsyncDisposable
             && parameters.TryGetProperty("password", out var pw) && pw.GetString() == Password;
         if (!ok)
         {
-            return Ok(new { authenticated = false, username = "", permissions = Array.Empty<string>() });
+            // As OMV 8.5 does (checked against a real one): HTTP 400 and an error object.
+            return Error(0, "Incorrect username or password.", 400);
         }
 
         var session = Guid.NewGuid().ToString("N");
         _sessions[session] = 0;
         context.Response.Cookies.Append(SessionCookie, session, new CookieOptions { HttpOnly = true, Path = "/" });
-        return Ok(new { authenticated = true, username = Username, permissions = new[] { "admin" } });
+        return Ok(new { username = Username, status = "authenticated", permissions = new { role = "admin" }, sessionid = session });
     }
 
     private IResult SharedFolderList(JsonElement parameters)
@@ -155,6 +158,6 @@ public sealed class FakeOmvServer : IAsyncDisposable
     private static IResult Ok(object response) =>
         Results.Json(new { response, error = (object?)null });
 
-    private static IResult Error(int code, string message) =>
-        Results.Json(new { response = (object?)null, error = new { code, message, trace = "(fake)" } });
+    private static IResult Error(int code, string message, int status = 200) =>
+        Results.Json(new { response = (object?)null, error = new { code, message, trace = "(fake)" } }, statusCode: status);
 }
