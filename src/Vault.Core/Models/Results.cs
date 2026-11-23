@@ -1,0 +1,61 @@
+using System.Text.Json.Serialization;
+
+namespace Vault.Core.Models;
+
+/// <summary>One reason why a tool could not do what the client asked (functional spec, section 1).</summary>
+public sealed record VaultError(string Code, string Message);
+
+/// <summary>What OpenMediaVault says about the machine. Every field is optional: OMV versions differ in what they report.</summary>
+public sealed record SystemStatus(
+    string? Hostname,
+    string? OmvVersion,
+    string? Kernel,
+    string? CpuModel,
+    double? CpuUsagePercent,
+    long? MemoryTotalBytes,
+    long? MemoryUsedBytes,
+    long? UptimeSeconds);
+
+/// <summary>Outcome of <c>system_status</c>. A failure has <c>Error</c> and is sent as a tool error (<c>isError</c>).</summary>
+public sealed record SystemStatusResult(SystemStatus? Status, VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static SystemStatusResult Success(SystemStatus status) => new(status);
+
+    public static SystemStatusResult Failure(VaultError error) => new(null, error);
+}
+
+/// <summary>A shared folder as OMV defines it.</summary>
+public sealed record SharedFolder(string Name, string? Uuid, string? RelativePath, string? Description);
+
+/// <summary>Outcome of <c>list_shared_folders</c>. <c>Message</c> is set when there is nothing to return: why, and what to do next.</summary>
+public sealed record SharedFoldersResult(
+    IReadOnlyList<SharedFolder> Folders,
+    int Total,
+    bool HasMore,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static SharedFoldersResult Found(IReadOnlyList<SharedFolder> folders, int total, bool hasMore) => new(folders, total, hasMore);
+
+    public static SharedFoldersResult Empty(int total, string message) => new([], total, false, message);
+
+    public static SharedFoldersResult Failure(VaultError error) => new([], 0, false, null, error);
+}
+
+public static class ErrorCodes
+{
+    public const string InvalidArguments = "invalid_arguments";
+    public const string OmvUnreachable = "omv_unreachable";
+    public const string OmvAuthFailed = "omv_auth_failed";
+    public const string OmvRpcError = "omv_rpc_error";
+    public const string OmvBadResponse = "omv_bad_response";
+    public const string Failed = "failed";
+}
