@@ -59,8 +59,9 @@ An entry of `list_users_and_groups`.
 |---|---|
 | `username` | Always present |
 | `full_name` | The user's comment in OMV. `null` when blank |
-| `system` | `true` for the accounts of the operating system (`root`, `sshd`...), `false` for the ones created in OMV. `null` when OMV does not report it. (OMV has no "disabled" flag for a user: the first draft of this model had one, and the real answer showed there is none) |
-| `groups` | Names of the groups this user belongs to |
+| `groups` | Names of the groups this user belongs to, all of them, also when the result is filtered by name |
+
+Whether the account belongs to the operating system or was created in OMV is not a field: it is the block of the result the user is in (`system` or `custom`, see 2.5). OMV has no "disabled" flag for a user: the first draft of this model had one, and the real answer showed there is none.
 
 ### Group
 
@@ -69,7 +70,6 @@ An entry of `list_users_and_groups`.
 | Field | Notes |
 |---|---|
 | `name` | Always present |
-| `system` | `true` for the groups of the operating system, `false` for the ones created in OMV. `null` when OMV does not report it |
 | `members` | Usernames of its members |
 
 ### Service
@@ -318,17 +318,24 @@ How it works: resolves `folder` to its uuid the same way `get_folder_permissions
 
 ### 2.5 Tool `list_users_and_groups`
 
-Lists the OMV users and groups, and which group each user belongs to — the other half of the piece that `get_folder_permissions` needs to be read against the permissions document.
+Lists the OMV users and groups, and which group each user belongs to — the other half of the piece that `get_folder_permissions` needs to be read against the permissions document. A NAS has many entries of the operating system (70 groups and 41 users in the test NAS, of which 6 groups and 8 users were created in OMV), so the result keeps the two apart and can be narrowed by name.
 
-**Input:** none.
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | No | Text to look for in the names of users and groups: an entry is kept when its name contains it, ignoring case. Blank or missing means no filter |
 
 **Output** (`UsersAndGroupsResult`)
 
 | Field | Type | Notes |
 |---|---|---|
-| `users` | list of User | Every OMV user, in OMV's order |
-| `groups` | list of Group | Every OMV group, in OMV's order |
+| `system` | Users and groups | The users and groups of the operating system (`root`, `sshd`, `sudo`...): the ones OMV marks as `system` |
+| `custom` | Users and groups | The ones created in OMV, and any entry OMV does not say is a system one |
+| `message` | text | Set when both blocks are empty: why, and what to do next |
 | `error` | Error | Empty when the call worked. See section 3 |
+
+*Users and groups* is a block with two lists: `users` (list of User) and `groups` (list of Group), each in OMV's order.
 
 #### UC-13 · List users and groups
 
@@ -336,11 +343,14 @@ Lists the OMV users and groups, and which group each user belongs to — the oth
 
 | ID | Name | Given | When | Then |
 |---|---|---|---|---|
-| UC-13.AC1 | Report what OMV says | OMV reports its users and groups | The client calls the tool | Success, `users` and `groups` each with every entry and field OMV reported. `error` is empty |
-| UC-13.AC2 | A field OMV does not report | A user or group entry is missing a field OMV may not send (for example `full_name`) | The client calls the tool | Success, that field is empty on that entry. The call is not an error |
-| UC-13.AC3 | An answer Vault cannot read | OMV answers with something that is not a list, or sends a user or group entry without a name | The client calls the tool | Failed, with `omv_bad_response`, and no partial `users` or `groups`. The entry is not left out, because a missing user or group would look like one that does not exist |
+| UC-13.AC1 | Report what OMV says | OMV reports its users and groups | The client calls the tool with no argument | Success, and every user and group OMV reported is in `system` or in `custom`, each with the fields OMV reported. `message` and `error` are empty |
+| UC-13.AC2 | A field OMV does not report | A user or group entry is missing a field OMV may not send (for example `full_name`, or `system`) | The client calls the tool | Success, that field is empty on that entry, and an entry that does not say it is a system one is in `custom`. The call is not an error |
+| UC-13.AC3 | An answer Vault cannot read | OMV answers with something that is not a list, or sends a user or group entry without a name | The client calls the tool | Failed, with `omv_bad_response`, and no partial result. The entry is not left out, because a missing user or group would look like one that does not exist |
+| UC-13.AC4 | System apart from custom | OMV has users and groups of the operating system and created in OMV | The client calls the tool | The ones OMV marks as `system` are only in `system`, and the others only in `custom` |
+| UC-13.AC5 | Search by name | OMV has users and groups | The client gives a `name` | Only the users and groups whose name contains that text, ignoring case, are returned, in both blocks. A user still lists all its groups. A blank `name` is the same as none |
+| UC-13.AC6 | Nothing matches | No user or group has a name that contains the `name` given (or OMV has none) | The client calls the tool | Success, both blocks empty, and a `message` that says nothing matched, and to try another text or leave the name out. The call is not an error |
 
-How it works: Vault calls `UserMgmt.enumerateAllUsers` (`{detail: "basic"}`) and `UserMgmt.enumerateAllGroups` and reports their entries in OMV's order. Checked against a real OMV 8.5.12 on 2026-11-24: both answers are a plain list; a user is `{name, uid, gid, comment, dir, shell, groups, system}` (`groups` is a list of group names) and a group is `{name, gid, members, system}`. Every user and group of the NAS is listed, the operating system's too (33 of the 41 users of the test NAS are `system`). Vault reports `username`, `full_name` (from `comment`), `system` and `groups`, and `name`, `system` and `members`; the uid, gid, home directory and shell are not passed on. The mapping stays tolerant (a list, or an object with a `data` list; a missing field is `null`), and the `groups` of a user are the ones its own entry lists plus every group that lists the user as a member. Only a missing name or an answer that is not a list is a failure.
+How it works: Vault calls `UserMgmt.enumerateAllUsers` (`{detail: "basic"}`) and `UserMgmt.enumerateAllGroups`, always for the whole NAS (the search is done by Vault, not by OMV), and reports their entries in OMV's order. Checked against a real OMV 8.5.12 on 2026-11-24: both answers are a plain list; a user is `{name, uid, gid, comment, dir, shell, groups, system}` (`groups` is a list of group names) and a group is `{name, gid, members, system}`, where `system` is a boolean. Vault reports `username`, `full_name` (from `comment`) and `groups`, and `name` and `members`; the uid, gid, home directory and shell are not passed on, and `system` is turned into the block the entry goes in. The mapping stays tolerant (a list, or an object with a `data` list; a missing field is `null`), and the `groups` of a user are the ones its own entry lists plus every group that lists the user as a member, worked out before filtering. Only a missing name or an answer that is not a list is a failure.
 
 ### 2.6 Tool `list_services`
 
@@ -576,6 +586,6 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 | # | Title | Description | Status | Priority | Comments |
 |---|---|---|---|---|---|
 | 1 | OMV version | Whether the services Vault calls (`Session`, `System`, `ShareMgmt`) keep the same methods, parameters and answer fields as OMV is updated. | Half-way | High | The real NAS runs OMV 8.5.12-1 (a UGREEN DXP2800, updated regularly), so Vault targets OMV 8.x. Checked against OMV 8.5.1 in a community Docker image (no systemd, no disks, no shared folders): the login answer (`status: "authenticated"`, not `authenticated: true`), the session cookie, HTTP 401 for an invalid session, HTTP 400 for a bad login and the fields of `System.getInformation` are confirmed, and Vault works against it. Also checked against the real 8.5.12-1 with an account in the group `openmediavault-admin`: both tools work and `ShareMgmt.getList` returns `reldirpath` and `comment` as assumed. Left: whether an account outside that group can call these methods (the real test was not done without the group), and how to notice that an OMV update changed an answer. |
-| 2 | Remaining tool catalog | Tool 2.5 (`list_users_and_groups`) is built and confirmed against the real NAS (2026-11-24: OMV's users have `comment`, `groups` and `system` and no "disabled" flag, so the model's `disabled` became `system`). Tools 2.6 to 2.9 (`list_services`, `list_disks`, `list_scheduled_tasks`, `list_pending_updates`) are specified with their input, output and acceptance criteria but not built; `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: for `list_services`, `list_disks`, `list_scheduled_tasks` and `list_pending_updates`, even the calls themselves are unconfirmed; `list_services`'s exact set of services and calls is the least certain of all of them. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: confirm each remaining call against the real NAS the way `list_users_and_groups` was (expose the call, read the real answer, fix the models and `FakeOmvServer`). One at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
+| 2 | Remaining tool catalog | Tool 2.5 (`list_users_and_groups`) is built and confirmed against the real NAS (2026-11-24: OMV's users have `comment`, `groups` and `system` and no "disabled" flag, so the model's `disabled` is gone and `system` splits the result in two blocks). Tools 2.6 to 2.9 (`list_services`, `list_disks`, `list_scheduled_tasks`, `list_pending_updates`) are specified with their input, output and acceptance criteria but not built; `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: for `list_services`, `list_disks`, `list_scheduled_tasks` and `list_pending_updates`, even the calls themselves are unconfirmed; `list_services`'s exact set of services and calls is the least certain of all of them. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: confirm each remaining call against the real NAS the way `list_users_and_groups` was (expose the call, read the real answer, fix the models and `FakeOmvServer`). One at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
 | 3 | Credentials secret | How the OMV account reaches the container. Settled: a Docker secret mounted as a file (`secrets/omv_credentials.json`, see `.example.json`), never an environment variable or the repository; and the file is the JSON object `{"username", "password"}` proposed in the technical spec. Still open: who creates and rotates the secret, and the file permissions for the non-root user the container runs as. | Half-way | Medium | Left to settle: who creates and rotates the secret, and the file permissions for the container's user (technical spec, section 4). |
 | 4 | Docker containers source | Whether the status of the containers on the NAS comes from OMV (its Docker plugin, if it has an RPC for it), from the Docker socket or from Portainer. It is probably outside the RPC of OMV, and a socket gives much more access than Vault should have. | Open | Medium | Decide before building the containers tool. |

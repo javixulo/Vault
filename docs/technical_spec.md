@@ -52,7 +52,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
   | `folders.count` | span of `list_shared_folders` | How many folders the page has | No |
   | `privileges.count` | span of `get_folder_permissions` | How many privileges the folder has | No |
   | `acl.entries.count` | span of `get_folder_acl` | How many named ACL entries the folder's root has | No |
-  | `users.count`, `groups.count` | span of `list_users_and_groups` | How many users and groups OMV reported | No |
+  | `users.count`, `groups.count` | span of `list_users_and_groups` | How many users and groups the result has (after the name filter) | No |
   | `error.type` | spans and logs | The error codes of section 6 (`omv_unreachable`, `failed`, ...); absent on success | No |
 
 - **Never recorded:** the password, the content of the credentials file, the body of a login request, or the text OMV sends in an error. The user name of the OMV account is logged when the session starts.
@@ -104,7 +104,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
 | `list_shared_folders` | true | `ShareMgmt.getList` | It only reads. Bounded: `limit` 1 to 200 (default 50), `offset`, `total` and `has_more`. |
 | `get_folder_permissions` | true | `ShareMgmt.getList`, `ShareMgmt.getPrivileges` | It only reads. One required argument, `folder`, declared optional in the schema so that a missing value is an `invalid_arguments` result and not an SDK protocol error. |
 | `get_folder_acl` | true | `ShareMgmt.getList`, `ShareMgmt.getFileACL` | It only reads. One required argument, `folder`, declared optional in the schema as in `get_folder_permissions`. Returns the owner, group and base permissions plus the named entries, never the path OMV reports. |
-| `list_users_and_groups` | true | `UserMgmt.enumerateAllUsers`, `UserMgmt.enumerateAllGroups` | It only reads. No arguments. Returns every user (with its groups) and every group (with its members). Checked against a real OMV 8.5.12. |
+| `list_users_and_groups` | true | `UserMgmt.enumerateAllUsers`, `UserMgmt.enumerateAllGroups` | It only reads. One optional argument, `name`, a text searched (ignoring case) in the names of users and groups; Vault filters, OMV is always asked for everything. Returns two blocks, `system` and `custom`, each with its users (with their groups) and groups (with their members). Checked against a real OMV 8.5.12. |
 
 The destructive and idempotent hints are not set: they are only meaningful for a tool that is not read-only.
 
