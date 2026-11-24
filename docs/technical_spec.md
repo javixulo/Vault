@@ -73,7 +73,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
   | `Vault__OmvBaseUrl` | none, **required** | Base URL of the OMV web interface, for example `https://nas.local`. Vault adds `/rpc.php` |
   | `Vault__OmvUsername` | none, **required** | User name of the OMV account |
   | `Vault__OmvPasswordFile` | `/run/secrets/omv_password` | The password file (plain text) |
-  | `Vault__TimeoutSeconds` | `10` | Time limit of each HTTP request to OMV, 1 to 120 |
+  | `Vault__TimeoutSeconds` | `20` | Time limit of each HTTP request to OMV, 1 to 120 |
   | `Vault__AllowInvalidCertificate` | `false` | Accept any TLS certificate from OMV. OMV ships a self-signed one, so this exists; with it on, anyone on the network can impersonate OMV and receive the account's password. Prefer to trust OMV's certificate in the host |
 
   plus `ASPNETCORE_HTTP_PORTS`, `TZ` and the OpenTelemetry variables of section 3.

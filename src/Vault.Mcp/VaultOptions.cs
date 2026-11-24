@@ -22,7 +22,7 @@ public sealed class VaultOptions
     public string OmvPasswordFile { get; set; } = "/run/secrets/omv_password";
 
     /// <summary>Time limit of each HTTP request to OMV, in seconds.</summary>
-    public int TimeoutSeconds { get; set; } = 10;
+    public int TimeoutSeconds { get; set; } = 20;
 
     /// <summary>
     /// Accept any TLS certificate from OMV. OMV ships with a self-signed one, so this exists, but it is off by default: with
