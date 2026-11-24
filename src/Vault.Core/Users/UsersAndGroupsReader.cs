@@ -53,13 +53,13 @@ public sealed class UsersAndGroupsReader(IOmvRpcClient omv, ILogger<UsersAndGrou
 
     /// <summary>
     /// Maps both answers, splits the entries into the operating system's (<c>system</c> true) and the rest (false, or not reported),
-    /// and keeps only the ones whose name contains <paramref name="name"/> (ignoring case) when it is given. The groups of a user are
-    /// worked out before filtering, so a filtered user still lists all its groups.
+    /// and keeps only the ones that match <paramref name="name"/> when it is given (see <see cref="NameFilter"/>). The groups of a user
+    /// are worked out before filtering, so a filtered user still lists all its groups.
     /// </summary>
     public static UsersAndGroupsResult Map(JsonElement usersResponse, JsonElement groupsResponse, string? name = null)
     {
         var filter = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
-        bool Matches(string candidate) => filter is null || candidate.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        bool Matches(string candidate) => filter is null || NameFilter.Matches(candidate, filter);
 
         var groups = Entries(groupsResponse, "groups")
             .Select(entry => (Name: NameOf(entry, "group"), System: entry.ReadBool("system") == true, Members: Names(entry, "members")))

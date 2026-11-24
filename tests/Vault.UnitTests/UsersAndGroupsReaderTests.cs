@@ -61,6 +61,25 @@ public sealed class UsersAndGroupsReaderTests
         Assert.Null(result.Message);
     }
 
+    [Theory]
+    [InlineData("fam*", new string[0], new[] { "family" }, new string[0], new string[0])]
+    [InlineData("a*", new[] { "ana" }, new[] { "admins" }, new string[0], new string[0])]
+    [InlineData("*s", new string[0], new[] { "admins" }, new string[0], new[] { "robots" })]
+    [InlineData("*o*", new string[0], new string[0], new[] { "bot" }, new[] { "robots" })]
+    [InlineData("amil*", new string[0], new string[0], new string[0], new string[0])]
+    [Trait("Criteria", "UC-13.AC7")]
+    public async Task A_name_with_a_star_must_match_the_whole_name(
+        string name, string[] customUsers, string[] customGroups, string[] systemUsers, string[] systemGroups)
+    {
+        var result = await Reader(Omv(Users, Groups)).ReadAsync(name);
+
+        Assert.True(result.Ok);
+        Assert.Equal(customUsers, result.Custom.Users.Select(u => u.Username));
+        Assert.Equal(customGroups, result.Custom.Groups.Select(g => g.Name));
+        Assert.Equal(systemUsers, result.System.Users.Select(u => u.Username));
+        Assert.Equal(systemGroups, result.System.Groups.Select(g => g.Name));
+    }
+
     [Fact]
     [Trait("Criteria", "UC-13.AC5")]
     public async Task A_filtered_user_still_lists_all_its_groups()

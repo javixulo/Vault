@@ -51,6 +51,17 @@ public sealed class ListUsersAndGroupsContractTests : IAsyncLifetime
     }
 
     [Fact]
+    [Trait("Criteria", "UC-13.AC7")]
+    public async Task A_name_with_a_star_matches_the_whole_name()
+    {
+        var starts = await _server.CallAsync("list_users_and_groups", new() { ["name"] = "fam*" });
+        var inside = await _server.CallAsync("list_users_and_groups", new() { ["name"] = "amil*" });
+
+        Assert.Equal(["family"], starts.StructuredContent!.Value.GetProperty("custom").GetProperty("groups").EnumerateArray().Select(g => g.GetProperty("name").GetString()));
+        Assert.Equal(0, inside.StructuredContent!.Value.GetProperty("custom").GetProperty("groups").GetArrayLength());
+    }
+
+    [Fact]
     [Trait("Criteria", "UC-13.AC6")]
     public async Task A_name_nothing_matches_is_a_normal_result_with_a_message()
     {

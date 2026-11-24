@@ -16,7 +16,7 @@ Every tool is **read-only**: none changes anything on the NAS.
 | `list_shared_folders` | The shared folders OMV defines, one page at a time (`limit`, `offset`, `total`, `has_more`) | "Which shared folders does the NAS have?" |
 | `get_folder_permissions` | The privileges OMV has set for one shared folder: each user or group and its access (`read_write`, `read_only`, `deny`) | "Who can write to `media`?" |
 | `get_folder_acl` | The extended POSIX ACL of a shared folder's root: owner, group, base permissions and the named users and groups with their `rwx` | "Does `Documentos` have extra ACL entries?" |
-| `list_users_and_groups` | The OMV users (with their groups) and groups (with their members), in two blocks: `system` (the operating system's own) and `custom` (created in OMV). An optional `name` keeps only the ones whose name contains it | "Who is in the `family` group?" |
+| `list_users_and_groups` | The OMV users (with their groups) and groups (with their members), in two blocks: `system` (the operating system's own) and `custom` (created in OMV). An optional `name` narrows both blocks: a piece of the name (`fam`), or a `*` wildcard on the whole name (`grupo-*`) | "Who is in the `family` group?" |
 
 ## Read-only by construction
 
