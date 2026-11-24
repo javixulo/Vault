@@ -199,4 +199,9 @@ jobs:
           fi
           flags=()
           if [[ "$version" == *-* ]]; then flags+=(--prerelease); fi
-          gh release create "$TAG" --title "$TAG" --notes-file notes.md "${flags[@]}"
+          # The release may already exist (created from the GitHub web page when the tag was made): then only its notes are set.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file notes.md "${flags[@]}"
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file notes.md "${flags[@]}"
+          fi
