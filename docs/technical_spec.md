@@ -3,7 +3,7 @@
 > Status: **draft v0.1** (skeleton)
 > Sibling document: [functional_spec.md](./functional_spec.md)
 >
-> Each section says whether it is **Decided** (agreed with the user, or inherited from the shared rules of the other MCPs of the system) or **Proposed** (a draft to review, section by section). Everything about *which OMV calls exist and what they return* is waiting for the question *OMV version* of the functional spec: the login, the session, the error answers, `System.getInformation`, `ShareMgmt.getList`, `ShareMgmt.getPrivileges` and `ShareMgmt.getFileACL` were checked against OMV 8.5.12 (a real NAS) and 8.5.1 (Docker); other versions are untested.
+> Each section says whether it is **Decided** (agreed with the user, or inherited from the shared rules of the other MCPs of the system) or **Proposed** (a draft to review, section by section). Everything about *which OMV calls exist and what they return* is waiting for the question *OMV version* of the functional spec: the login, the session, the error answers, `System.getInformation`, `ShareMgmt.getList`, `ShareMgmt.getPrivileges`, `ShareMgmt.getFileACL`, `UserMgmt.enumerateAllUsers` and `UserMgmt.enumerateAllGroups` were checked against OMV 8.5.12 (a real NAS) and 8.5.1 (Docker); other versions are untested.
 
 ## 1. Technology rule
 
@@ -43,7 +43,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
 
 **Proposed: what is recorded.**
 
-- **Spans.** The incoming HTTP request is the root of the unit of work. Under it, one span per tool call (`system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`) and one child span per call to OMV, `omv_rpc`. A step that fails unexpectedly has the error status and `error.type`; a failure of OMV is recorded as an error code on the span (`error.type`) but is not an unexpected failure of the step.
+- **Spans.** The incoming HTTP request is the root of the unit of work. Under it, one span per tool call (`system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`) and one child span per call to OMV, `omv_rpc`. A step that fails unexpectedly has the error status and `error.type`; a failure of OMV is recorded as an error code on the span (`error.type`) but is not an unexpected failure of the step.
 - **Attributes this project adds** (the names are the contract with whoever reads the logs; renaming one is a change to say out loud). The names live in `Telemetry.cs`:
 
   | Name | Where | Meaning | Personal data |
@@ -52,6 +52,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
   | `folders.count` | span of `list_shared_folders` | How many folders the page has | No |
   | `privileges.count` | span of `get_folder_permissions` | How many privileges the folder has | No |
   | `acl.entries.count` | span of `get_folder_acl` | How many named ACL entries the folder's root has | No |
+  | `users.count`, `groups.count` | span of `list_users_and_groups` | How many users and groups OMV reported | No |
   | `error.type` | spans and logs | The error codes of section 6 (`omv_unreachable`, `failed`, ...); absent on success | No |
 
 - **Never recorded:** the password, the content of the credentials file, the body of a login request, or the text OMV sends in an error. The user name of the OMV account is logged when the session starts.
@@ -83,7 +84,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
 **Proposed.**
 
 - **Tools are thin.** A tool class only binds the arguments, calls a service and returns its result. No rule lives in a tool class.
-- **Services** (in `Vault.Core`): `SystemStatusReader`, `SharedFolderLister`, `FolderPermissionsReader` and `FolderAclReader`, one per tool (the two that take a folder name share `SharedFolderLookup`, which turns the name into OMV's uuid). The **port** they depend on is `IOmvRpcClient`.
+- **Services** (in `Vault.Core`): `SystemStatusReader`, `SharedFolderLister`, `FolderPermissionsReader`, `FolderAclReader` and `UsersAndGroupsReader`, one per tool (the two that take a folder name share `SharedFolderLookup`, which turns the name into OMV's uuid). The **port** they depend on is `IOmvRpcClient`.
 - **The OMV RPC client** (`Vault.Core/Rpc`). `OmvRpcClient` talks to `POST <base>/rpc.php` with `{"service", "method", "params", "options"}` and reads `{"response", "error"}`. It logs in with `Session.login`, keeps the session cookie in the handler of its single, process-long `HttpClient` (the handler must not be recycled by an `HttpClientFactory`), renews the session once when a call finds it expired (an HTTP 401 or 403, which OMV 8.5 was seen to send with `code: 0`; an RPC error code of 5001 or 5002 also counts, as an unconfirmed guess for other versions: open question *OMV version*), retries the failed call once with the new session before giving up, and shares one login between concurrent calls (a generation counter under a lock), so a session expiring under concurrent calls still logs in once, not once per call.
 - **The read-only boundary is code, not OMV.** `IOmvRpcClient.CallAsync` takes an `OmvRpcCall`, a class with a **private constructor** whose only instances are static fields in `OmvRpcCall.cs`. There is no method that takes a service or method name as text, and no tool argument names a call; the login (`OmvRpcCall.Login`) is `internal` and not in `OmvRpcCall.Exposed`. Adding a call means adding a static field **and** a row in the "RPC calls" section of the functional spec; a test fails if the two lists differ. Tests also check that the port has no `string` parameters and that no tool accepts anything that could name a call.
 - **Failures are typed.** `OmvRpcException` carries a kind (`Unreachable`, `AuthFailed`, `SessionExpired`, `RpcError`, `BadResponse`) and the RPC code; `Messages.ForRpc` turns it into the error of section 6, without the exception's text (which may hold what OMV said).
@@ -95,7 +96,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
 
 **Proposed.** This is the contract with the clients. Changes to it must be said explicitly (`CLAUDE.md`). The input and output models are in section 2 of the functional spec; this section covers how they travel.
 
-**Tools:** `system_status`, `list_shared_folders`, `get_folder_permissions` and `get_folder_acl` (the third was built before its call was confirmed; checking it against the real OMV 8.5.12 corrected the first reading of `ShareMgmt.getPrivileges`; the fourth was built from a real answer of `ShareMgmt.getFileACL`), listed in this order on every connection — the only four built so far. Five more are specified in the functional spec (2.5 to 2.9) but not built, because their RPC calls are not confirmed against a real OMV yet (open question *Remaining tool catalog*); this table grows as each one is. **Every tool is read-only by construction: it is declared with `ReadOnly = true`** (`readOnlyHint`), and a contract test fails if any tool is not. Every tool has a title and `openWorldHint=false`. The hints are for the client, never a security measure: the boundary is section 5.
+**Tools:** `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl` and `list_users_and_groups` (the fifth was built from a request seen in OMV's own traffic and then checked against the real answers of OMV 8.5.12, which showed that users have no "disabled" flag but a `system` one; the third was built before its call was confirmed; checking it against the real OMV 8.5.12 corrected the first reading of `ShareMgmt.getPrivileges`; the fourth was built from a real answer of `ShareMgmt.getFileACL`), listed in this order on every connection — the only five built so far. Four more are specified in the functional spec (2.6 to 2.9) but not built, because their RPC calls are not confirmed against a real OMV yet (open question *Remaining tool catalog*); this table grows as each one is. **Every tool is read-only by construction: it is declared with `ReadOnly = true`** (`readOnlyHint`), and a contract test fails if any tool is not. Every tool has a title and `openWorldHint=false`. The hints are for the client, never a security measure: the boundary is section 5.
 
 | Tool | `readOnlyHint` | OMV call | Why |
 |---|---|---|---|
@@ -103,6 +104,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
 | `list_shared_folders` | true | `ShareMgmt.getList` | It only reads. Bounded: `limit` 1 to 200 (default 50), `offset`, `total` and `has_more`. |
 | `get_folder_permissions` | true | `ShareMgmt.getList`, `ShareMgmt.getPrivileges` | It only reads. One required argument, `folder`, declared optional in the schema so that a missing value is an `invalid_arguments` result and not an SDK protocol error. |
 | `get_folder_acl` | true | `ShareMgmt.getList`, `ShareMgmt.getFileACL` | It only reads. One required argument, `folder`, declared optional in the schema as in `get_folder_permissions`. Returns the owner, group and base permissions plus the named entries, never the path OMV reports. |
+| `list_users_and_groups` | true | `UserMgmt.enumerateAllUsers`, `UserMgmt.enumerateAllGroups` | It only reads. No arguments. Returns every user (with its groups) and every group (with its members). Checked against a real OMV 8.5.12. |
 
 The destructive and idempotent hints are not set: they are only meaningful for a tool that is not read-only.
 
@@ -130,7 +132,7 @@ The destructive and idempotent hints are not set: they are only meaningful for a
   - **Contract** (`Vault.ContractTests`): the real server in process, talked to with the SDK's MCP client over HTTP, with a double of the OMV port. The tools and their order, annotations and titles (**all read-only**), that no tool accepts an argument that could name an OMV call, `snake_case` schemas, the structured result also sent as text, no `ok` flag, `isError` on a failure, that no failure carries its cause, the resource attributes and the trace context (`traceparent` continued; none starts its own trace).
   - **Smoke** (`scripts/smoke-test.sh [image]`): starts the image as a non-root user with a throwaway secret and an unreachable OMV, checks that the container stays up, that `/health` answers and that `tools/list` returns the tools.
   - **System** (`Vault.SystemTests`): the image as a container, with the credentials copied in as a secret file, against a `FakeOmvServer` running in the test process (reached through `host.docker.internal`). The tools answer, only the documented calls reach OMV; a down OMV does not stop the container and the tools say `omv_unreachable`; a missing secret stops it with a message that says how to fix it; a wrong password is in neither the result nor the logs. Skipped unless `VAULT_SYSTEM_IMAGE` names the image.
-- **Fixtures:** none on disk. The stand-in of OMV is code (`tests/shared/FakeOmvServer.cs`) and copies what a real OMV 8.5 answered (login, session errors, `System.getInformation`, `ShareMgmt.getList`, `ShareMgmt.getPrivileges`, `ShareMgmt.getFileACL`). See "Trying Vault by hand" below.
+- **Fixtures:** none on disk. The stand-in of OMV is code (`tests/shared/FakeOmvServer.cs`) and copies what a real OMV 8.5 answered (login, session errors, `System.getInformation`, `ShareMgmt.getList`, `ShareMgmt.getPrivileges`, `ShareMgmt.getFileACL`, `UserMgmt.enumerateAllUsers`, `UserMgmt.enumerateAllGroups`). See "Trying Vault by hand" below.
 - **Framework:** xUnit v3 on Microsoft.Testing.Platform (`global.json` selects the runner, so `dotnet test` works on the .NET 10 SDK). Analyzer rules about test names and inline arrays are relaxed in `tests/Directory.Build.props`.
 
 ### Trying Vault by hand against a real OMV
@@ -153,7 +155,7 @@ The destructive and idempotent hints are not set: they are only meaningful for a
 
 **The real NAS.** Create the dedicated account first (README, "Set up the OMV account"), then point `VAULT_OMV_URL` at the NAS from the machine that runs Vault. A failure tells the cause: `omv_unreachable` is the address or the network; `omv_auth_failed` with "does not allow it this call" is an account that is not in `openmediavault-admin`; `omv_auth_failed` with "refused" is a wrong user or password.
 
-**What to check, in this order:** `/health` is up; the tool list has the four tools, all read-only; `system_status` returns the OMV version you run; `list_shared_folders`, `get_folder_permissions` and `get_folder_acl` answer, or say why not. When a real answer differs from what `FakeOmvServer` sends, fix the stand-in first (and the test that shows it), then the code: the stand-in must keep copying the real OMV, not the documentation.
+**What to check, in this order:** `/health` is up; the tool list has the five tools, all read-only; `system_status` returns the OMV version you run; `list_shared_folders`, `get_folder_permissions`, `get_folder_acl` and `list_users_and_groups` answer, or say why not. When a real answer differs from what `FakeOmvServer` sends, fix the stand-in first (and the test that shows it), then the code: the stand-in must keep copying the real OMV, not the documentation.
 
 **Not automated.** Nothing runs these checks in CI, and nothing detects that an OMV update changed an answer (functional spec, open question *OMV version*). A script that runs the read-only tools against a real NAS and compares their shape is the way to close that gap.
 
