@@ -53,6 +53,9 @@ public static class Messages
     public const string NoDisks =
         "OpenMediaVault reports no disks. Nothing is wrong with the call; tell the user OMV listed none.";
 
+    public const string NoFilesystems =
+        "OpenMediaVault reports no filesystems. Nothing is wrong with the call; tell the user OMV listed none.";
+
     /// <summary>The error a tool returns when OMV could not be asked (or did not answer as expected).</summary>
     public static VaultError ForRpc(OmvRpcException error, string what) => error.Kind switch
     {

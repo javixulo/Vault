@@ -10,6 +10,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Vault.Core;
 using Vault.Core.Disks;
+using Vault.Core.Filesystems;
 using Vault.Core.Rpc;
 using Vault.Core.Services;
 using Vault.Core.Shares;
@@ -70,6 +71,7 @@ builder.Services.AddSingleton<FolderAclReader>();
 builder.Services.AddSingleton<UsersAndGroupsReader>();
 builder.Services.AddSingleton<ServicesReader>();
 builder.Services.AddSingleton<DisksReader>();
+builder.Services.AddSingleton<FilesystemsReader>();
 
 // The contract uses snake_case (technical spec, section 6). Outcomes are plain results, never protocol errors.
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -89,7 +91,8 @@ builder.Services
     .WithTools<GetFolderAclTool>(json)
     .WithTools<ListUsersAndGroupsTool>(json)
     .WithTools<ListServicesTool>(json)
-    .WithTools<ListDisksTool>(json);
+    .WithTools<ListDisksTool>(json)
+    .WithTools<ListFilesystemsTool>(json);
 
 var app = builder.Build();
 

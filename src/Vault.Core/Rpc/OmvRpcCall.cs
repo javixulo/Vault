@@ -50,8 +50,11 @@ public sealed class OmvRpcCall
     /// <summary>The disks with SMART support and their overall status. Used by <c>list_disks</c>. Checked against OMV 8.5.12.</summary>
     public static readonly OmvRpcCall DisksSmart = new("Smart", "getList");
 
+    /// <summary>The filesystems OMV manages, mounted or not. Used by <c>list_filesystems</c>. Checked against OMV 8.5.12.</summary>
+    public static readonly OmvRpcCall Filesystems = new("FileSystemMgmt", "enumerateFilesystems");
+
     /// <summary>Every call a tool can make, in a fixed order. <see cref="Login"/> is not here.</summary>
-    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart];
+    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems];
 
     public override string ToString() => Name;
 }

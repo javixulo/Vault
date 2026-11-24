@@ -13,7 +13,7 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>DiskMgmt.enumerateDevices</c> and <c>Smart.getList</c>, and it
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>DiskMgmt.enumerateDevices</c>, <c>Smart.getList</c> and <c>FileSystemMgmt.enumerateFilesystems</c>, and it
 /// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
 /// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
@@ -179,6 +179,13 @@ public sealed class FakeOmvServer : IAsyncDisposable
             {
                 new { devicename = "sda", canonicaldevicefile = "/dev/sda", model = "ST4000VN006-3CW104", size = "4000787030016", temperature = "36" },
                 new { devicename = "sdb", canonicaldevicefile = "/dev/sdb", model = "BUP BK", size = "5000981077504", temperature = "" },
+            }),
+            // Checked against a real OMV 8.5.12 (2026-11-24): a plain list; size and available are bytes as text, used is human
+            // text, and an unmounted filesystem has "-1" in them and an empty mountpoint.
+            ("FileSystemMgmt", "enumerateFilesystems") => Ok(new[]
+            {
+                new { devicename = "sda1", canonicaldevicefile = "/dev/sda1", uuid = "b1c995cf-ac11-418f-8d73-54fed3bc2ec2", label = "", type = "ext4", mounted = true, mountpoint = "/srv/dev-disk-by-uuid-b1c995cf", used = "532.59 GiB", available = "3364930629632", size = "3936819658752" },
+                new { devicename = "mmcblk0p7", canonicaldevicefile = "/dev/mmcblk0p7", uuid = "db287638-4c71-42d2-a5c7-fe942847592e", label = "USER-DATA", type = "ext4", mounted = false, mountpoint = "", used = "-1", available = "-1", size = "-1" },
             }),
             ("Smart", "getList") => Ok(new
             {

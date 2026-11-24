@@ -186,6 +186,29 @@ public sealed record DisksResult(
     public static DisksResult Failure(VaultError error) => new([], null, error);
 }
 
+/// <summary>
+/// A filesystem OMV manages. The label is null when it has none; the mount point and everything after it are null when it is not
+/// mounted. <c>Used</c> is the text OMV shows (<c>"4.35 TiB"</c>), not bytes: OMV only gives it rounded.
+/// </summary>
+public sealed record Filesystem(string Device, string? Uuid, string? Type, string? Label, bool Mounted, string? MountPoint, long? SizeBytes, string? Used, long? AvailableBytes, int? UsedPercent);
+
+/// <summary>Outcome of <c>list_filesystems</c>. <c>Message</c> is set when there is nothing to return.</summary>
+public sealed record FilesystemsResult(
+    IReadOnlyList<Filesystem> Filesystems,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static FilesystemsResult Found(IReadOnlyList<Filesystem> filesystems) => new(filesystems);
+
+    public static FilesystemsResult Empty(string message) => new([], message);
+
+    public static FilesystemsResult Failure(VaultError error) => new([], null, error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";

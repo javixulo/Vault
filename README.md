@@ -4,7 +4,7 @@
 
 Vault is a small, **read-only** [MCP](https://modelcontextprotocol.io) server that wraps the JSON-RPC API of [OpenMediaVault](https://www.openmediavault.org) (OMV). It plugs into your AI assistant and lets it look at the real state of the NAS (system, shared folders and, as the catalog grows, permissions, services, disks, users and backups) instead of trusting documentation that may be out of date.
 
-> **Status: skeleton.** Seven tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`, `list_services` and `list_disks` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); other OMV versions are untested.
+> **Status: skeleton.** Eight tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`, `list_services`, `list_disks` and `list_filesystems` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); other OMV versions are untested.
 
 ## Tools
 
@@ -19,6 +19,7 @@ Every tool is **read-only**: none changes anything on the NAS.
 | `list_users_and_groups` | The OMV users (with their groups) and groups (with their members), in two blocks: `system` (the operating system's own) and `custom` (created in OMV). An optional `name` narrows both blocks: a piece of the name (`fam`), or a `*` wildcard on the whole name (`grupo-*`) | "Who is in the `family` group?" |
 | `list_services` | Whether each service OMV manages (smb, nfs, ssh...) is enabled and running. Built on `Services.getStatus` | "Is SMB running?" |
 | `list_disks` | The disks OMV sees: device, model, size, SMART status (`passed`, `failed`, `unknown`) and temperature. Built on `DiskMgmt.enumerateDevices` and `Smart.getList` | "Are the disks healthy?" |
+| `list_filesystems` | The filesystems OMV manages, mounted or not: device, uuid, type, label, mount point, size, used space (as text), free space and used percentage. Built on `FileSystemMgmt.enumerateFilesystems` | "How full is each data disk?" |
 
 ## Read-only by construction
 
