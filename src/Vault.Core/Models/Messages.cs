@@ -42,6 +42,11 @@ public static class Messages
         $"The root of the shared folder '{folder}' has no extended ACL entry for any named user or group; only the owner, group and other permissions apply. " +
         "Nothing is wrong with the call; tell the user the folder has no extra ACL entries.";
 
+    public static string NoUsersOrGroups(string? name) =>
+        name is null
+            ? "OpenMediaVault reports no users or groups. Nothing is wrong with the call; tell the user the NAS has none."
+            : $"No user or group has a name that contains '{name}'. Nothing is wrong with the call. Try a shorter or different text, or leave the name out to list everything.";
+
     /// <summary>The error a tool returns when OMV could not be asked (or did not answer as expected).</summary>
     public static VaultError ForRpc(OmvRpcException error, string what) => error.Kind switch
     {

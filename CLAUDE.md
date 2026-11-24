@@ -39,6 +39,10 @@ dotnet run --project src/Vault.Mcp
 - `.env` and everything in `secrets/` (except the example) are git-ignored. Never print them, commit them or put them in a URL.
 - Work directly on `main`. Do not create branches unless asked.
 - Commit messages follow Conventional Commits: `type(scope): subject`, with the types `feat`, `fix`, `docs`, `test`, `refactor`, `build`, `ci` and `chore`. The subject is in the imperative and has no final period. The scope is optional.
+- Use the **GitHub MCP** (`mcp__github__*`) for everything that talks to GitHub: commits, pushes, branches, pull requests, issues. Do not shell out to `git` or `gh` for that. The repository is `javixulo/Vault`.
+  - With the MCP, a commit and its push are the same call (`push_files` creates the commit on the remote branch). So when several changes are asked for in one go, make **one** `push_files` call with all the files, not one call per change.
+  - The MCP does not touch the local `.git`: after it pushes, the local clone is behind `origin/main` even though the files are the same. Say so in the answer and give the user `git fetch origin` and `git reset --mixed origin/main` to catch up (the second keeps the working tree).
+- When the user asks for "commit and push", and the work would make several commits, do all the commits first and push **once**, at the end, not after each commit.
 - Never do any of these unless asked explicitly:
   - commit;
   - push (asking for a commit is not asking for a push);

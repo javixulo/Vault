@@ -105,25 +105,38 @@ public sealed record FolderAclResult(
     public static FolderAclResult Failure(string folder, VaultError error) => new(folder, null, null, null, null, null, [], null, error);
 }
 
-/// <summary>An OMV user. <c>System</c> is true for the accounts of the operating system (<c>root</c>, <c>sshd</c>...). <c>FullName</c> and <c>System</c> are null when OMV does not report them.</summary>
-public sealed record OmvUser(string Username, string? FullName, bool? System, IReadOnlyList<string> Groups);
+/// <summary>An OMV user. <c>FullName</c> is null when OMV reports none.</summary>
+public sealed record OmvUser(string Username, string? FullName, IReadOnlyList<string> Groups);
 
-/// <summary>An OMV group and the usernames of its members. <c>System</c> is true for the groups of the operating system.</summary>
-public sealed record OmvGroup(string Name, bool? System, IReadOnlyList<string> Members);
+/// <summary>An OMV group and the usernames of its members.</summary>
+public sealed record OmvGroup(string Name, IReadOnlyList<string> Members);
 
-/// <summary>Outcome of <c>list_users_and_groups</c>.</summary>
+/// <summary>The users and the groups of one side of <c>list_users_and_groups</c>.</summary>
+public sealed record UsersAndGroups(IReadOnlyList<OmvUser> Users, IReadOnlyList<OmvGroup> Groups)
+{
+    public static UsersAndGroups None { get; } = new([], []);
+
+    [JsonIgnore]
+    public bool IsEmpty => Users.Count == 0 && Groups.Count == 0;
+}
+
+/// <summary>
+/// Outcome of <c>list_users_and_groups</c>: the accounts and groups of the operating system (<c>System</c>) apart from the ones
+/// created in OMV (<c>Custom</c>). <c>Message</c> is set when both are empty.
+/// </summary>
 public sealed record UsersAndGroupsResult(
-    IReadOnlyList<OmvUser> Users,
-    IReadOnlyList<OmvGroup> Groups,
+    UsersAndGroups System,
+    UsersAndGroups Custom,
+    string? Message = null,
     VaultError? Error = null)
 {
     /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
     [JsonIgnore]
     public bool Ok => Error is null;
 
-    public static UsersAndGroupsResult Found(IReadOnlyList<OmvUser> users, IReadOnlyList<OmvGroup> groups) => new(users, groups);
+    public static UsersAndGroupsResult Found(UsersAndGroups system, UsersAndGroups custom, string? message = null) => new(system, custom, message);
 
-    public static UsersAndGroupsResult Failure(VaultError error) => new([], [], error);
+    public static UsersAndGroupsResult Failure(VaultError error) => new(UsersAndGroups.None, UsersAndGroups.None, null, error);
 }
 
 public static class ErrorCodes

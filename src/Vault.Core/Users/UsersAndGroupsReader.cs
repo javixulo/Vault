@@ -15,7 +15,7 @@ public sealed class UsersAndGroupsReader(IOmvRpcClient omv, ILogger<UsersAndGrou
 {
     private const string What = "Listing the users and groups";
 
-    public async Task<UsersAndGroupsResult> ReadAsync(CancellationToken cancellationToken = default)
+    public async Task<UsersAndGroupsResult> ReadAsync(string? name, CancellationToken cancellationToken = default)
     {
         using var activity = Telemetry.Source.StartActivity("list_users_and_groups");
         UsersAndGroupsResult result;
@@ -23,7 +23,7 @@ public sealed class UsersAndGroupsReader(IOmvRpcClient omv, ILogger<UsersAndGrou
         {
             var users = await omv.CallAsync(OmvRpcCall.Users, new { detail = "basic" }, cancellationToken);
             var groups = await omv.CallAsync(OmvRpcCall.Groups, null, cancellationToken);
-            result = Map(users, groups);
+            result = Map(users, groups, name);
         }
         catch (OperationCanceledException)
         {
@@ -41,8 +41,8 @@ public sealed class UsersAndGroupsReader(IOmvRpcClient omv, ILogger<UsersAndGrou
             activity.Fail(error);
         }
 
-        activity?.SetTag(Telemetry.UsersCount, result.Users.Count);
-        activity?.SetTag(Telemetry.GroupsCount, result.Groups.Count);
+        activity?.SetTag(Telemetry.UsersCount, result.System.Users.Count + result.Custom.Users.Count);
+        activity?.SetTag(Telemetry.GroupsCount, result.System.Groups.Count + result.Custom.Groups.Count);
         if (result.Error is { } failure)
         {
             activity.SetErrorTypes([failure.Code]);
@@ -51,27 +51,44 @@ public sealed class UsersAndGroupsReader(IOmvRpcClient omv, ILogger<UsersAndGrou
         return result;
     }
 
-    public static UsersAndGroupsResult Map(JsonElement usersResponse, JsonElement groupsResponse)
+    /// <summary>
+    /// Maps both answers, splits the entries into the operating system's (<c>system</c> true) and the rest (false, or not reported),
+    /// and keeps only the ones whose name contains <paramref name="name"/> (ignoring case) when it is given. The groups of a user are
+    /// worked out before filtering, so a filtered user still lists all its groups.
+    /// </summary>
+    public static UsersAndGroupsResult Map(JsonElement usersResponse, JsonElement groupsResponse, string? name = null)
     {
+        var filter = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        bool Matches(string candidate) => filter is null || candidate.Contains(filter, StringComparison.OrdinalIgnoreCase);
+
         var groups = Entries(groupsResponse, "groups")
-            .Select(entry => (Name: NameOf(entry, "group"), System: entry.ReadBool("system"), Members: Names(entry, "members")))
+            .Select(entry => (Name: NameOf(entry, "group"), System: entry.ReadBool("system") == true, Members: Names(entry, "members")))
             .ToList();
 
         var users = Entries(usersResponse, "users")
             .Select(entry =>
             {
-                var name = NameOf(entry, "user");
+                var username = NameOf(entry, "user");
                 var own = entry.ValueKind == JsonValueKind.Object ? Names(entry, "groups") : [];
-                var memberOf = groups.Where(g => g.Members.Contains(name, StringComparer.Ordinal)).Select(g => g.Name);
-                return new OmvUser(
-                    name,
-                    entry.ReadString("comment") is { } text && !string.IsNullOrWhiteSpace(text) ? text : null,
-                    entry.ReadBool("system"),
-                    [.. own.Concat(memberOf).Distinct(StringComparer.Ordinal)]);
+                var memberOf = groups.Where(g => g.Members.Contains(username, StringComparer.Ordinal)).Select(g => g.Name);
+                return (
+                    System: entry.ReadBool("system") == true,
+                    User: new OmvUser(
+                        username,
+                        entry.ReadString("comment") is { } text && !string.IsNullOrWhiteSpace(text) ? text : null,
+                        [.. own.Concat(memberOf).Distinct(StringComparer.Ordinal)]));
             })
             .ToList();
 
-        return UsersAndGroupsResult.Found(users, [.. groups.Select(g => new OmvGroup(g.Name, g.System, g.Members))]);
+        UsersAndGroups Side(bool system) => new(
+            [.. users.Where(u => u.System == system && Matches(u.User.Username)).Select(u => u.User)],
+            [.. groups.Where(g => g.System == system && Matches(g.Name)).Select(g => new OmvGroup(g.Name, g.Members))]);
+
+        var (systemSide, customSide) = (Side(true), Side(false));
+        return UsersAndGroupsResult.Found(
+            systemSide,
+            customSide,
+            systemSide.IsEmpty && customSide.IsEmpty ? Messages.NoUsersOrGroups(filter) : null);
     }
 
     /// <summary>The items of an answer: a bare array, or an object with a <c>data</c> array. Anything else is a bad response.</summary>

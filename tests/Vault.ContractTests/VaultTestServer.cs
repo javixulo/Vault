@@ -19,9 +19,9 @@ internal sealed class StubOmv : IOmvRpcClient
         call == OmvRpcCall.SystemInformation
             ? Parse("""{"hostname":"nas","version":"7.4.0","kernel":"Linux 6.1","cpuModelName":"N100","cpuUtilization":3.5,"memTotal":8000,"memUsed":2000,"uptime":3600}""")
             : call == OmvRpcCall.Users
-                ? Parse("""[{"name":"ana","comment":"Ana Lopez","groups":["family"],"system":false},{"name":"kid","comment":"","groups":["family"],"system":false}]""")
+                ? Parse("""[{"name":"ana","comment":"Ana Lopez","groups":["family"],"system":false},{"name":"kid","comment":"","groups":["family"],"system":false},{"name":"root","comment":"root","groups":["root"],"system":true}]""")
             : call == OmvRpcCall.Groups
-                ? Parse("""[{"name":"family","members":["ana","kid"],"system":false},{"name":"admins","members":[],"system":false}]""")
+                ? Parse("""[{"name":"family","members":["ana","kid"],"system":false},{"name":"admins","members":[],"system":false},{"name":"root","members":["root"],"system":true}]""")
             : call == OmvRpcCall.SharedFolderAcl
                 ? Parse("""{"file":"srv/x/media/","owner":"root","group":"users","acl":{"user":7,"group":5,"other":0,"users":[{"name":"root","perms":null,"uid":0,"system":true},{"name":"kid","perms":5,"uid":1001,"system":false}],"groups":[{"name":"family","perms":7,"gid":1000,"system":false},{"name":"admins","perms":null,"gid":1001,"system":false}]}}""")
             : call == OmvRpcCall.SharedFolderPrivileges

@@ -56,7 +56,7 @@ public sealed class ToolAnnotationsContractTests : IAsyncLifetime
             ["list_shared_folders"] = ["limit", "offset"],
             ["get_folder_permissions"] = ["folder"],
             ["get_folder_acl"] = ["folder"],
-            ["list_users_and_groups"] = [],
+            ["list_users_and_groups"] = ["name"],
         };
 
         foreach (var tool in await _server.ToolsAsync())
