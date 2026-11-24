@@ -30,7 +30,7 @@ OMV has no API keys with limited permissions: Vault logs in with an OMV account,
 
 - Vault can only make a **fixed list of RPC calls**, each documented as read-only in the functional spec (section "RPC calls"). There is no tool that runs "any RPC method", and no tool argument names a service or a method.
 - A test fails if the code exposes a call that the spec does not document.
-- The credentials are a **Docker secret** (a file), never an environment variable in plain text.
+- The password is a **Docker secret** (a file inside the container), never an environment variable.
 
 Use a dedicated OMV account for Vault, not the one you use yourself. See [Set up the OMV account](#set-up-the-omv-account): that account needs administrator rights, so read what that means before you create it.
 
@@ -42,102 +42,138 @@ Vault is written in **C# / .NET 10**.
 
 ## Requirements
 
-- .NET SDK 10 (see `global.json`), or Docker.
+- Docker with Compose 2.23 or later (to run the published image), or the .NET SDK 10 (see `global.json`) to build and run it from source.
 - An OMV (its web interface address) and an account for Vault.
 
 ## Set up the OMV account
 
 OMV has **no API keys** (checked in the code of OMV 8.5): its API is the one the web interface uses, and it is reached by logging in with a user name and a password. So Vault needs an OMV user.
 
-1. In the OMV web interface, go to **Users → Users** and create a user just for Vault (for example `vault-mcp`). Give it a long, unique password: it will live in a file on the machine that runs Vault, so do not reuse one.
+1. In the OMV web interface, go to **Users → Users** and create a user just for Vault (for example `vault-mcp`). Give it a long, unique password: it will be kept in your compose settings, so do not reuse one.
 2. Add that user to the group **`openmediavault-admin`** (the web interface administrators). It is a system group: if it is not in the list when you edit the user, look for the option that shows system groups.
-3. Put the user name and the password in `secrets/omv_credentials.json` (see [Run](#run)).
+3. Put the user name and the password in the compose settings (see [Run with Docker](#run-with-docker)).
 
 **Why the administrator group.** Tested on OMV 8.5.12: a user in no group can log in and `system_status` works, but OMV answers HTTP 403 to `list_shared_folders`, because OMV demands the administrator role for most of its calls. Without the group, Vault says so in the tool's error ("the account lacks the role it needs"). Which other tools will work without it is not known yet.
 
 **What that means for security.** The account is a full administrator of OMV, so anyone who gets its password can change the NAS. Vault itself cannot: it only knows a fixed list of read-only calls (see [Read-only by construction](#read-only-by-construction)). Protect the password:
 
-- Keep it only in `secrets/omv_credentials.json`, never in `.env`, in the compose file or in the repository (both files are git-ignored).
-- Make that file readable only by you and by the container's user.
+- Inside the container it is a Docker secret (a file), never an environment variable, so `docker inspect` does not show it. In your settings it is a plain variable: keep your `.env` (or your stack's variables) readable only by you and out of any repository.
 - Do not reuse the password, and use the account for nothing else. Changing it is enough to cut Vault off.
 
-## Run
+## Run with Docker
 
-Put the account in a JSON file (copy `secrets/omv_credentials.example.json`; the `secrets/` folder is git-ignored):
-
-```json
-{ "username": "an-omv-account-for-vault", "password": "..." }
-```
-
-```powershell
-$env:Vault__OmvBaseUrl = "https://nas.local"
-$env:Vault__CredentialsFile = "secrets/omv_credentials.json"
-dotnet run --project src/Vault.Mcp
-```
-
-The server speaks MCP over Streamable HTTP at `http://localhost:5000/mcp` (`/health` is the health check). To use it from Claude Code:
-
-```bash
-claude mcp add --transport http vault http://localhost:5000/mcp
-```
-
-### Configuration
-
-Environment variables, using the ASP.NET Core convention:
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `Vault__OmvBaseUrl` | none, **required** | Base URL of the OMV web interface, for example `https://nas.local`. Vault adds `/rpc.php` |
-| `Vault__CredentialsFile` | `/run/secrets/omv_credentials` | JSON file with `username` and `password` of the OMV account |
-| `Vault__TimeoutSeconds` | `10` | Time limit of each request to OMV, 1 to 120 |
-| `Vault__AllowInvalidCertificate` | `false` | Accept any TLS certificate from OMV (it ships a self-signed one). With it on, anyone on your network can impersonate OMV and receive the password |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | When set, logs and traces are exported through OTLP. For Seq: `http://seq:5341/ingest/otlp` |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` (`http/protobuf` in `docker-compose.yml`) | Seq only accepts `http/protobuf`: set it when exporting to Seq |
-| `OTEL_RESOURCE_ATTRIBUTES` | unset | For example `deployment.environment.name=production`; the server adds `service.name` and `service.version` itself |
-
-On start the server validates its configuration (OMV address, time limit, credentials file) and logs every problem, with how to fix it, before exiting. If OMV simply does not answer yet, it starts anyway and warns.
-
-## Docker
-
-```powershell
-Copy-Item .env.template .env                                                   # settings that are not secret: edit it
-Copy-Item secrets/omv_credentials.example.json secrets/omv_credentials.json   # the OMV account (the secret): edit it
-docker compose up -d --build
-```
-
-`.env` holds the address of OMV, the port and the user of the container; the account (username and password) goes only in `secrets/omv_credentials.json`, never in `.env`. Both files are git-ignored.
-
-A minimal `docker-compose.yml` (the repository's own file has the same shape and more comments):
+Vault is configured **only through its compose file**: there is no other file to create on the host. Save this as `docker-compose.yml` (the repository's own file has the same shape, with more comments) and give a value to the `${VARIABLES}`:
 
 ```yaml
 services:
   vault:
-    build: .                     # or `image:` if you pushed it to a registry
-    image: vault-mcp:latest
+    image: ghcr.io/javixulo/vault:${VAULT_VERSION}   # required, for example 0.1.0
     container_name: vault-mcp
     restart: unless-stopped
-    user: "1000:1000"            # must be able to read the secret file
+    user: "1000:1000"
     ports:
-      - "8080:8080"              # MCP endpoint (Streamable HTTP) and /health
+      - "${VAULT_PORT:-7842}:8080"       # MCP endpoint (Streamable HTTP) and /health
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
-      TZ: Europe/Madrid
-      Vault__OmvBaseUrl: https://nas.local
+      TZ: ${TZ:-Europe/Madrid}
+      Vault__OmvBaseUrl: ${VAULT_OMV_URL}           # required, for example https://nas.local
+      Vault__OmvUsername: ${VAULT_OMV_USERNAME}     # required, the OMV account for Vault
+      # Only if OMV has a self-signed HTTPS certificate (false is the safe default; read the risk in "Configuration"):
+      Vault__AllowInvalidCertificate: ${VAULT_ALLOW_INVALID_CERTIFICATE:-false}
+      # Logs and traces (OpenTelemetry). Empty exports nothing; logs still go to `docker logs`.
       OTEL_SERVICE_NAME: vault-mcp
-      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf   # Seq does not speak gRPC
-      OTEL_EXPORTER_OTLP_ENDPOINT: ""   # e.g. http://seq:5341/ingest/otlp ; empty exports nothing
-    # SECURITY: the OMV credentials are a Docker SECRET, mounted at /run/secrets/omv_credentials.
-    # Never put them in `environment:` in plain text, in this file or in the image.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}                  # for Seq: http://seq:5341/ingest/otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}     # Seq only accepts http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=production
     secrets:
-      - omv_credentials
+      - omv_password
 
 secrets:
-  omv_credentials:
-    file: ./secrets/omv_credentials.json   # {"username": "...", "password": "..."}; chmod 0400, git-ignored
+  omv_password:
+    environment: VAULT_OMV_PASSWORD     # required: compose turns it into the file /run/secrets/omv_password
 ```
 
-The container runs as a non-root user, has a health check on `/health` and `restart: unless-stopped`. It keeps nothing: there is no volume. It needs no network access except to OMV.
+Give the variables a value in a `.env` next to the file (copy `.env.template`), in the environment of the shell that runs compose, or in the variables of your stack editor (Portainer, Dockge...):
+
+| Variable | Example | Meaning |
+|---|---|---|
+| `VAULT_VERSION` | `0.1.0` | **Required.** Version of the image. Use an exact version, so updates happen on purpose (`latest` is the newest stable one; a pre-release needs its exact version) |
+| `VAULT_PORT` | `7842` | Optional (default 7842). Port Vault listens on, on this machine |
+| `TZ` | `Europe/Madrid` | Optional. Timezone |
+| `VAULT_UID`, `VAULT_GID`, `VAULT_ALLOW_INVALID_CERTIFICATE` | `1000`, `1000`, `false` | Optional, only in the repository's compose file (see `.env.template`) |
+| `VAULT_OMV_URL` | `https://nas.local` | **Required.** Address of the OMV web interface |
+| `VAULT_OMV_USERNAME` | `vault-mcp` | **Required.** The OMV account of [the previous section](#set-up-the-omv-account) |
+| `VAULT_OMV_PASSWORD` | `a-long-unique-password` | **Required.** Its password. In a `.env` file, put it in single quotes if it has `$` or `#` |
+
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://seq:5341/ingest/otlp` | Optional. Where to send logs and traces; empty sends nothing |
+
+An example of the matching `.env` (the environment file, in OMV's compose plugin), with a value for every variable. The first four are the ones you must set; change the others only if you need to:
+
+```ini
+# Required
+VAULT_VERSION=0.1.0
+VAULT_OMV_URL=https://nas.local
+VAULT_OMV_USERNAME=vault-mcp
+VAULT_OMV_PASSWORD='a-long-unique-password'
+
+# Optional (these are the defaults; the logging endpoint is empty by default)
+VAULT_PORT=7842
+TZ=Europe/Madrid
+VAULT_ALLOW_INVALID_CERTIFICATE=false
+OTEL_EXPORTER_OTLP_ENDPOINT=http://seq:5341/ingest/otlp
+```
+
+`VAULT_UID` and `VAULT_GID` (default `1000`) exist only in the repository's compose file; the sample above hardcodes `user: "1000:1000"`.
+
+```powershell
+Copy-Item .env.template .env      # then edit it
+docker compose up -d
+docker compose logs vault         # "Startup checks passed" and "OpenMediaVault answered and accepted the credentials"
+```
+
+Then, to use it from Claude Code:
+
+```bash
+claude mcp add --transport http vault http://localhost:7842/mcp
+```
+
+The container runs as a non-root user, has a health check on `/health` and `restart: unless-stopped`. It keeps nothing: there is no volume. It needs no network access except to OMV. TLS and authentication are the job of your reverse proxy, not Vault's.
+
+Why a secret and not an environment variable: an environment variable is visible with `docker inspect` and in the process list of the host. The password you give compose is turned into a file that only the container sees. It is not encrypted: anyone who can read your compose settings can read it, which is why the account must be only for Vault.
+
+**The image.** `ghcr.io/javixulo/vault` (GitHub's container registry), for `linux/amd64` and `linux/arm64`. Tags: `0.1.0` (never moves), `0.1` (the newest patch), `latest` (the newest stable version; never a pre-release) and `sha-<commit>`. If the package is private, log in once with `docker login ghcr.io` using a GitHub token with `read:packages`.
+
+**Updating and going back.** Change `VAULT_VERSION` and run `docker compose pull && docker compose up -d`. The previous image stays on the machine until you remove it, so going back is setting the old version again. [`CHANGELOG.md`](CHANGELOG.md) says what changed in each version, configuration included. The version that runs is in the image label (`docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' vault-mcp`), in the logs and in the MCP handshake.
+
+### Configuration
+
+What the container reads (the compose file above sets them from the variables):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `Vault__OmvBaseUrl` | none, **required** | Base URL of the OMV web interface, for example `https://nas.local`. Vault adds `/rpc.php` |
+| `Vault__OmvUsername` | none, **required** | User name of the OMV account |
+| `Vault__OmvPasswordFile` | `/run/secrets/omv_password` | File with the account's password as plain text (one trailing line break is ignored). It is read again at each login, so a rotated secret needs no restart |
+| `Vault__TimeoutSeconds` | `10` | Time limit of each request to OMV, 1 to 120 |
+| `Vault__AllowInvalidCertificate` | `false` | Accept any TLS certificate from OMV (it ships a self-signed one). With it on, anyone on your network can impersonate OMV and receive the password |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | When set, logs and traces are exported through OTLP. For Seq: `http://seq:5341/ingest/otlp` |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` (`http/protobuf` in the repository's compose file) | Seq only accepts `http/protobuf`: set it when exporting to Seq |
+| `OTEL_RESOURCE_ATTRIBUTES` | unset | For example `deployment.environment.name=production`; the server adds `service.name` and `service.version` itself |
+
+On start the server validates its configuration (OMV address, user, time limit, password file) and logs every problem, with how to fix it, before exiting. If OMV simply does not answer yet, it starts anyway and warns.
+
+## Run from source
+
+```powershell
+$env:Vault__OmvBaseUrl = "https://nas.local"
+$env:Vault__OmvUsername = "vault-mcp"
+Set-Content secrets/omv_password "the-password" -NoNewline      # the secrets/ folder is git-ignored
+$env:Vault__OmvPasswordFile = "secrets/omv_password"
+dotnet run --project src/Vault.Mcp
+```
+
+It listens on `http://localhost:5000/mcp` (`/health` is the health check). To build the image yourself, uncomment `build: .` in the repository's compose file and run `docker compose up -d --build`.
 
 ## Tests
 
@@ -159,6 +195,10 @@ Run one level with `dotnet test --project tests/Vault.UnitTests` (or the name of
 ### Continuous integration
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds the solution once on every push to `main` and every pull request, then runs the three test projects in parallel. Another job builds the Docker image, runs `scripts/smoke-test.sh` against it and, on pushes to `main`, the system tests. `ci-ok` is the one check to require. A manual workflow, [`release-dry-run.yml`](.github/workflows/release-dry-run.yml), rehearses publishing the image against a throwaway registry and publishes nothing. More detail in [`docs/technical_spec.md`](docs/technical_spec.md), section 8.
+
+### Releasing
+
+Publishing is continuous delivery of the **image**, triggered by a version tag. [`release.yml`](.github/workflows/release.yml) runs when a tag such as `v0.1.0` (or `v0.1.0-beta.1`, a pre-release) is pushed: it checks that the commit is in `main`, runs the tests, builds the image, smoke-tests and system-tests that build, scans it (a warning, never a block), pushes it to `ghcr.io/javixulo/vault` for `amd64` and `arm64` with an SBOM and build provenance, and creates the GitHub release with the changelog entry as its notes. Steps to release: update `CHANGELOG.md` (the entry's heading is `## [0.1.0] - 2026-12-01`), commit, then `git tag v0.1.0 && git push origin v0.1.0`. Deploying to the NAS is your compose file: set `VAULT_VERSION` and pull (see [Run with Docker](#run-with-docker)). Details and reasons: [`docs/technical_spec.md`](docs/technical_spec.md), section 9.
 
 ## Architecture
 
@@ -206,7 +246,9 @@ The main design decisions:
 | `tests/Vault.ContractTests/` | Contract tests through a real MCP client |
 | `tests/Vault.SystemTests/` | System tests against the Docker image |
 | `tests/shared/` | The stand-in of the OMV RPC endpoint, shared by the integration and system tests |
-| `secrets/` | Where the OMV credentials file goes (git-ignored; only the example is versioned) |
+| `secrets/` | Optional, git-ignored: where a password file goes when running from source |
+| `CHANGELOG.md` | What changed in each version |
+| `.github/workflows/` | CI (`ci.yml`), the release that publishes the image (`release.yml`) and its rehearsal (`release-dry-run.yml`) |
 | `docs/` | Functional spec (what the tools do) and technical spec (how and why) |
 | `Dockerfile`, `docker-compose.yml` | Container image and deployment |
 | `.env.template` | Template of `.env`, the non-secret settings for compose |

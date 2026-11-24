@@ -28,7 +28,7 @@ tests/Vault.ContractTests/      Contract tests through a real MCP client, with a
 tests/Vault.SystemTests/        System tests: complete flows against the Docker image (skipped without VAULT_SYSTEM_IMAGE)
 tests/shared/FakeOmvServer.cs   The stand-in of the OMV RPC endpoint, linked (not copied) by the integration and system tests
 scripts/smoke-test.sh           Smoke test of the Docker image (section 8)
-secrets/                        Git-ignored folder for the OMV credentials file; only the example is versioned
+secrets/                        Optional, git-ignored: a password file when running from source or with `file:` secrets
 docs/                           Functional and technical specs
 ```
 
@@ -39,7 +39,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
 **Decided.** Same as the other MCPs of the system (the `app-telemetry` skill).
 
 - **OpenTelemetry (OTLP) for logs and traces**, exported only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; the backend is Seq. **Console logging to stderr stays on**, so `docker logs` works when the backend is down. Exporter configuration uses the standard variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`). Logs and traces only; no metrics.
-- **Resource attributes on every record:** `service.name` (`OTEL_SERVICE_NAME`, default `vault-mcp`), `service.version` and `deployment.environment.name` (from `OTEL_RESOURCE_ATTRIBUTES`; `docker-compose.yml` sets it from `VAULT_ENVIRONMENT`).
+- **Resource attributes on every record:** `service.name` (`OTEL_SERVICE_NAME`, default `vault-mcp`), `service.version` and `deployment.environment.name` (from `OTEL_RESOURCE_ATTRIBUTES`; `docker-compose.yml` sets it to `production`).
 
 **Proposed: what is recorded.**
 
@@ -55,7 +55,7 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
   | `users.count`, `groups.count` | span of `list_users_and_groups` | How many users and groups the result has (after the name filter) | No |
   | `error.type` | spans and logs | The error codes of section 6 (`omv_unreachable`, `failed`, ...); absent on success | No |
 
-- **Never recorded:** the password, the content of the credentials file, the body of a login request, or the text OMV sends in an error. The user name of the OMV account is logged when the session starts.
+- **Never recorded:** the password, the content of the password file, the body of a login request, or the text OMV sends in an error. The user name of the OMV account is logged when the session starts.
 
 ## 4. Deployment
 
@@ -64,20 +64,22 @@ There is no `Vault.ModelTests` (Vault has no embedding model), no data folder an
 - Each MCP is packaged as a Docker image and runs as its own container. Transport is HTTP; TLS and authentication are the user's existing reverse proxy, **not Vault's job** (Sigil's MCP contract: no authentication of its own, the proxy provides it).
 - **Vault keeps nothing.** There is no data folder, no volume and no database. Everything is read from OMV when a tool is called. If something ever needs to be cached, that is an explicit decision recorded here, not something the skeleton carries over.
 - **User and permissions.** The container runs as a **non-root user** (`user:` in compose), with `cap_drop: ALL` and `no-new-privileges`. It needs no disk access and no network access except HTTP(S) to OMV.
-- **Credentials: a Docker secret.** *(Decided: never plain text in the environment; proposed: the details below.)* The OMV account is a file mounted by compose's `secrets:` at `/run/secrets/omv_credentials` (`Vault__CredentialsFile`). **Proposed format:** a JSON object `{"username": "...", "password": "..."}` (see `secrets/omv_credentials.example.json`; `OmvCredentials.Parse`). The file is read again at each login, so a rotated secret is picked up without a restart. The `secrets/` folder is git-ignored and in `.dockerignore`. OMV has no API keys with limited permissions, so this is a full OMV account: the read-only boundary is the fixed list of calls (section 5), not OMV. **Decided:** the account is kept in the group `openmediavault-admin`. A non-admin account could log in and call `System.getInformation`, but OMV answered HTTP 403 to `ShareMgmt.getList`, so a non-admin account cannot support `list_shared_folders` (nor, most likely, the shared-folder tools, ACL included). The mitigation for holding a full admin account: its password is unique to Vault, never reused for the human OMV user or anything else, and reachable only through the Docker secret of this section, never through the environment or the repository.
+- **Configuration comes only from the compose file** *(Decided, 2026-11-24)*. Vault runs as a container whose whole configuration is in its `docker-compose.yml` (or the stack of Portainer or similar): no file has to be created on the host, nothing is baked into the image. The compose file takes its values from `${VARIABLES}` that the user sets in a `.env`, in the shell or in the stack editor (`.env.template`, README). The address and the user name go to the container as environment variables; the password goes as a Docker secret.
+- **Credentials: the user name is configuration, the password is a Docker secret.** *(Decided: the password is never plain text in the container's environment; the details below were decided with the compose-only rule above and replace the earlier JSON file `{"username","password"}` in `secrets/omv_credentials.json`, which needed a file on the host. Nothing was published with the old form.)* The user name is `Vault__OmvUsername` (not a secret: it is logged when the session starts). The password is a file mounted by compose's `secrets:` at `/run/secrets/omv_password` (`Vault__OmvPasswordFile`), **plain text** (one trailing line break is ignored; `OmvCredentials.ParsePassword`). Plain text, not JSON, so that any password survives without escaping. In the repository's compose file the secret is declared with `environment: VAULT_OMV_PASSWORD`, which makes compose create the file from the variable of the host or of the `.env`: no file on the host, and the value is taken literally. **What was checked:** (1) the Compose Spec has no `content:` key for `secrets` (only for `configs`), so an inline secret in the compose file is not possible; `environment:` is the way. (2) Compose 5.7.1 mounts it as `/run/secrets/omv_password` with mode 0444, so the non-root `user:` reads it whatever its uid, and `docker inspect` shows no password in the environment. (3) A missing or empty `VAULT_OMV_PASSWORD` stops compose with a message. (4) A password with `"`, `$`, `\`, `{}` and `#` reaches the file intact. **Limits to know:** the password is plain text in the user's `.env` or stack variables, and compose shows it in `docker compose config`; Docker Swarm needs a different secret definition (`external` or `file`) and is not supported here; `environment:` secrets need Compose 2.23 or later. A user who prefers a file replaces that line with `file: ./secrets/omv_password`. The file is read again at each login, so a rotated secret is picked up without a restart (a changed variable needs `docker compose up -d --force-recreate`). OMV has no API keys with limited permissions, so this is a full OMV account: the read-only boundary is the fixed list of calls (section 5), not OMV. **Decided:** the account is kept in the group `openmediavault-admin`. A non-admin account could log in and call `System.getInformation`, but OMV answered HTTP 403 to `ShareMgmt.getList`, so a non-admin account cannot support `list_shared_folders` (nor, most likely, the shared-folder tools, ACL included). The mitigation for holding a full admin account: its password is unique to Vault, never reused for the human OMV user or anything else, and never in the repository or in the container's environment.
 - **Configuration through environment variables**, using the ASP.NET Core convention:
 
   | Variable | Default | Meaning |
   |---|---|---|
   | `Vault__OmvBaseUrl` | none, **required** | Base URL of the OMV web interface, for example `https://nas.local`. Vault adds `/rpc.php` |
-  | `Vault__CredentialsFile` | `/run/secrets/omv_credentials` | The credentials file |
+  | `Vault__OmvUsername` | none, **required** | User name of the OMV account |
+  | `Vault__OmvPasswordFile` | `/run/secrets/omv_password` | The password file (plain text) |
   | `Vault__TimeoutSeconds` | `10` | Time limit of each HTTP request to OMV, 1 to 120 |
   | `Vault__AllowInvalidCertificate` | `false` | Accept any TLS certificate from OMV. OMV ships a self-signed one, so this exists; with it on, anyone on the network can impersonate OMV and receive the account's password. Prefer to trust OMV's certificate in the host |
 
   plus `ASPNETCORE_HTTP_PORTS`, `TZ` and the OpenTelemetry variables of section 3.
-- **Startup validation.** On start the server checks that everything it needs is in place and, if not, **logs every problem at once with what is wrong and how to fix it, and exits with a failure code**: the OMV address is set and is an absolute http(s) URL, the time limit is between 1 and 120 seconds, and the credentials file can be read by the running user and holds a username and a password. The content of the credentials file is never logged, valid or not. Whether OMV answers is **not** a startup failure: OMV may start after Vault, so the server logs a warning, keeps running, answers `/health` and lists its tools, and tries again on every tool call (failing with `omv_unreachable` until OMV answers). This differs from the data-folder checks of Tinker because Vault does not own the thing it depends on. (Tinker has an open question on whether to exit or run degraded: here it is decided per check, as above.)
+- **Startup validation.** On start the server checks that everything it needs is in place and, if not, **logs every problem at once with what is wrong and how to fix it, and exits with a failure code**: the OMV address is set and is an absolute http(s) URL, the time limit is between 1 and 120 seconds, the OMV user name is set, and the password file can be read by the running user and is not empty. The content of the password file is never logged, valid or not. Whether OMV answers is **not** a startup failure: OMV may start after Vault, so the server logs a warning, keeps running, answers `/health` and lists its tools, and tries again on every tool call (failing with `omv_unreachable` until OMV answers). This differs from the data-folder checks of Tinker because Vault does not own the thing it depends on. (Tinker has an open question on whether to exit or run degraded: here it is decided per check, as above.)
 - **Timezone** through the `TZ` variable, as in all the user's images.
-- **Built:** `Dockerfile` (multi-stage, .NET 10 `aspnet` runtime, `curl` only for the healthcheck, health check on `/health`, `ENTRYPOINT ["dotnet", "Vault.Mcp.dll"]`) and `docker-compose.yml`. **Verified:** the image was built and run with Docker 29, the system tests passed against it, and it served a real OMV 8.5.12. **Not verified:** `scripts/smoke-test.sh` (it needs bash) and the CI run.
+- **Built:** `Dockerfile` (multi-stage, .NET 10 `aspnet` runtime, `curl` only for the healthcheck, health check on `/health`, the version stamped from a build argument, `ENTRYPOINT ["dotnet", "Vault.Mcp.dll"]`) and `docker-compose.yml`. **Verified (2026-11-24, Docker 29, Compose 5.7.1):** the image builds and the unit, integration, contract and system tests and `scripts/smoke-test.sh` pass against it; the repository's compose file, with only the variables set, started the container healthy, the secret was a file with mode 0444 and the password was not in the container's environment, and `system_status` answered with the real NAS (OMV 8.5.12-1) through it; a missing user or password stops compose or Vault with a message; a password with special characters arrives intact; a build with `VERSION=0.1.0-beta.1` labels the image and the MCP handshake reports that version. **Not verified:** the GitHub Actions runs (nothing has been pushed yet) and any other architecture than amd64.
 
 ## 5. Architecture
 
@@ -134,17 +136,17 @@ The destructive and idempotent hints are not set: they are only meaningful for a
 - **Where does a test go?** Ask in this order and stop at the first yes: (1) does it need the whole image, a restart or the real startup? **System.** (2) Is it about what the client sees (names, schemas, `snake_case`, `isError`, annotations, the trace context)? **Contract.** (3) Does it need real HTTP to a server, or real files? **Integration.** (4) Otherwise it is a rule of the code: **Unit**, with the port replaced by a double.
 - **Doubles replace ports, not rules.**
 - **Levels**, each its own project:
-  - **Unit** (`Vault.UnitTests`): no disk, network or database. The services with an in-memory double of `IOmvRpcClient` (`Fakes.cs`): mapping of OMV's fields, validation, error mapping, that no message leaks, that a cancellation is not turned into an error. Plus the fixed list of calls, the credentials parser and the endpoint builder.
+  - **Unit** (`Vault.UnitTests`): no disk, network or database. The services with an in-memory double of `IOmvRpcClient` (`Fakes.cs`): mapping of OMV's fields, validation, error mapping, that no message leaks, that a cancellation is not turned into an error. Plus the fixed list of calls, the password parser and the endpoint builder.
   - **Integration** (`Vault.IntegrationTests`): the real `OmvRpcClient` and the services over real HTTP against `FakeOmvServer` (a Kestrel on a free port that plays the OMV RPC endpoint, records every call and can expire its sessions): login once and reuse, renewal, one login for concurrent calls, a refused login, an unreachable server, an RPC error, a non-JSON answer; startup validation with real files; and `SpecAllowlistTests`, which reads the functional spec (copied next to the tests, so CI needs no checkout) and fails if `OmvRpcCall.Exposed` has a call the "RPC calls" tables do not list, or the table of confirmed calls has one that is not exposed (the "Not confirmed yet" table may list calls whose tool is not built).
   - **Contract** (`Vault.ContractTests`): the real server in process, talked to with the SDK's MCP client over HTTP, with a double of the OMV port. The tools and their order, annotations and titles (**all read-only**), that no tool accepts an argument that could name an OMV call, `snake_case` schemas, the structured result also sent as text, no `ok` flag, `isError` on a failure, that no failure carries its cause, the resource attributes and the trace context (`traceparent` continued; none starts its own trace).
   - **Smoke** (`scripts/smoke-test.sh [image]`): starts the image as a non-root user with a throwaway secret and an unreachable OMV, checks that the container stays up, that `/health` answers and that `tools/list` returns the tools.
-  - **System** (`Vault.SystemTests`): the image as a container, with the credentials copied in as a secret file, against a `FakeOmvServer` running in the test process (reached through `host.docker.internal`). The tools answer, only the documented calls reach OMV; a down OMV does not stop the container and the tools say `omv_unreachable`; a missing secret stops it with a message that says how to fix it; a wrong password is in neither the result nor the logs. Skipped unless `VAULT_SYSTEM_IMAGE` names the image.
+  - **System** (`Vault.SystemTests`): the image as a container, with the password copied in as a secret file, against a `FakeOmvServer` running in the test process (reached through `host.docker.internal`). The tools answer, only the documented calls reach OMV; a down OMV does not stop the container and the tools say `omv_unreachable`; a missing secret stops it with a message that says how to fix it; a wrong password is in neither the result nor the logs. Skipped unless `VAULT_SYSTEM_IMAGE` names the image.
 - **Fixtures:** none on disk. The stand-in of OMV is code (`tests/shared/FakeOmvServer.cs`) and copies what a real OMV 8.5 answered (login, session errors, `System.getInformation`, `ShareMgmt.getList`, `ShareMgmt.getPrivileges`, `ShareMgmt.getFileACL`). See "Trying Vault by hand" below.
 - **Framework:** xUnit v3 on Microsoft.Testing.Platform (`global.json` selects the runner, so `dotnet test` works on the .NET 10 SDK). Analyzer rules about test names and inline arrays are relaxed in `tests/Directory.Build.props`.
 
 ### Trying Vault by hand against a real OMV
 
-**Decided.** The automated tests use a stand-in of OMV. To see Vault work against the real thing, there are two targets. Both use the same Vault, configured only through `Vault__OmvBaseUrl` and the credentials file.
+**Decided.** The automated tests use a stand-in of OMV. To see Vault work against the real thing, there are two targets. Both use the same Vault, configured only through `Vault__OmvBaseUrl`, `Vault__OmvUsername` and the password secret.
 
 | Target | Use it for | Cost and risk |
 |---|---|---|
@@ -153,10 +155,10 @@ The destructive and idempotent hints are not set: they are only meaningful for a
 
 **Common steps.**
 
-1. Put the non-secret settings in `.env` (copy `.env.template`): `VAULT_OMV_URL` is the address of the web interface, **with one scheme and no path** (`http://192.168.1.7:8080`; a doubled `http://http://` makes Vault look for a host called `http`). Add `VAULT_ALLOW_INVALID_CERTIFICATE=true` only for an HTTPS OMV with a self-signed certificate.
-2. Put the account in `secrets/omv_credentials.json` (copy the example). Never put the password in `.env`, a command line, a log or a chat. Both files are git-ignored.
-3. `docker compose up -d --build`, then `curl http://localhost:8080/health`, and add the server to the client: `claude mcp add --transport http vault http://localhost:8080/mcp`. `docker compose logs vault` says what failed and how to fix it.
-4. After changing `.env` or the secret, `docker compose up -d --force-recreate`.
+1. Put the settings in `.env` (copy `.env.template`): `VAULT_OMV_URL` is the address of the web interface, **with one scheme and no path** (`http://192.168.1.7:8080`; a doubled `http://http://` makes Vault look for a host called `http`), `VAULT_OMV_USERNAME` and `VAULT_OMV_PASSWORD` are the account. Add `VAULT_ALLOW_INVALID_CERTIFICATE=true` only for an HTTPS OMV with a self-signed certificate. `.env` is git-ignored: never put the password in a command line, a log or a chat.
+2. Set `VAULT_VERSION=local` and build the image under the name the compose file expects: `docker build -t ghcr.io/javixulo/vault:local .` (or uncomment `build: .` in the compose file).
+3. `docker compose up -d`, then `curl http://localhost:7842/health`, and add the server to the client: `claude mcp add --transport http vault http://localhost:7842/mcp`. `docker compose logs vault` says what failed and how to fix it.
+4. After changing `.env` (the password included), `docker compose up -d --force-recreate`.
 
 **OMV in Docker.** Run the image (it needs `--privileged`, because OMV expects systemd), publish its web interface on a free host port and wait until the page answers. The default web account of a fresh OMV is `admin` / `openmediavault`, which is public: use it only here and never for a real NAS. The Vault container reaches the OMV container through the host, so `VAULT_OMV_URL` is `http://host.docker.internal:<port>`. Throw it away with `docker rm -f` when done; nothing is kept. The older image `ikogan/openmediavault` crashes on start (it is based on Debian 7) and is not usable.
 
@@ -182,6 +184,66 @@ ci-ok  (after every job above, even if they fail: the only check the branch prot
 
 The test jobs run the executables packed by `build` (no checkout, restore or compile), `scripts/ci-run-tests.sh <project>` runs each level and fails when no test ran, `ci-ok` is the only required check, every action is pinned to a commit SHA, and `release-dry-run.yml` rehearses publishing the image to a throwaway registry. Differences from Tinker: no model-tests job, no model download or cache, no trimming of native libraries (Vault has none). The reasons for each decision are in Tinker's technical spec, section 8.
 
-## 9. Open questions
+## 9. Delivery
 
-No open questions of its own yet. The pending decisions that shape this document (the OMV version, the credentials secret, the remaining tool catalog and the Docker tools) are in the functional spec; see the open questions *OMV version*, *Credentials secret*, *Remaining tool catalog* and *Docker tools: data source and shape* there.
+**Decided (2026-11-24), written and linted, not yet run on GitHub.** The skills `container-delivery` and `versioning-and-changelog` are followed. Delivery here means **publishing the image**; deploying it to the NAS is the user's compose file (below).
+
+### Where the image is published
+
+**Decided: GitHub Container Registry, `ghcr.io/javixulo/vault`.** Docker Hub was considered, because the user has an account:
+
+| | `ghcr.io` | Docker Hub |
+|---|---|---|
+| Login from the workflow | The built-in `GITHUB_TOKEN`, scoped to the job. Nothing stored | A long-lived access token kept as a repository secret, which `container-delivery` avoids |
+| Link to the code | The package is linked to the repository (source label, permissions follow it, provenance names the commit) | Separate: nothing ties the image to the repository |
+| Pull limits | None for public packages | Anonymous pulls are rate-limited (100 per 6 hours per IP); an account raises it |
+| Cost | Free for public packages; private packages count against the plan's storage | Free for public repositories; one private repository on the free plan |
+| Discoverability | Low | Higher (the default search of `docker pull`) |
+
+Docker Hub only wins on discoverability, which matters little for a tool that is configured for one NAS. If the user later wants Hub as well, it is a second login and a second tag list in `release.yml`, not a redesign.
+
+**Visibility.** The repository is currently private. A new package on ghcr.io starts **private**: the NAS then needs a one-time `docker login ghcr.io` with a token with `read:packages`. To pull anonymously (and to let anyone use Vault, as the MIT license suggests), make the package public in its settings after the first publication; this is done once and by hand, because the workflow cannot (and should not) change it. *Open question: Package visibility.*
+
+### The release workflow
+
+`.github/workflows/release.yml`, triggered only by a tag `v*.*.*`. Permissions are `contents: read`; only the `publish` job gets `packages: write` and only the `github-release` job gets `contents: write`. Every action is pinned to a commit.
+
+```
+verify          tag is a semantic version with a leading v; the commit is in main; unit, integration and contract tests
+publish         build image (amd64, loaded) → smoke test → system tests → vulnerability scan (warns) →
+                login with GITHUB_TOKEN → push linux/amd64 + linux/arm64 with SBOM and provenance
+github-release  GitHub release whose notes are the entry of that version in CHANGELOG.md (pre-release if the version has a suffix)
+```
+
+- **Publish what was tested.** The image tested is built first and loaded; the multi-platform push reuses its layers from the build cache, so the amd64 image that is published is the one the smoke and system tests ran against (the digest is in the job summary). The arm64 image is built from the same sources but **is not run** in CI (no arm runner is used); it is only built, and the first arm64 host to run it is the real test. The build stage runs on the build machine (`--platform=$BUILDPLATFORM`) so arm64 does not compile under emulation.
+- **Tags** (`docker/metadata-action`): the full version (`0.1.0`, never moves), `0.1` (moves with patches), `0` (skipped by the action while the major is 0) and `sha-<commit>`; `latest` only for a version without a suffix, so a pre-release never moves it. A version tag is never overwritten: a wrong release is replaced by the next one.
+- **Evidence.** SBOM and provenance (`mode=max`) are attached to the image by the build. Signing is out of scope until someone verifies signatures.
+- **Vulnerability scan.** Trivy over the tested image, HIGH and CRITICAL with an available fix, written to the job summary. It never blocks (`continue-on-error`, exit code 0): a release must not depend on when someone else publishes a fix. Blocking on a severity is an option for when the user decides.
+- **Rehearsal.** `release-dry-run.yml` (manual, no credentials, no write permission) does the build, the multi-platform push to a throwaway registry, the pull back and the tests, and prints the tags it would publish. It cannot test the login, the permissions or the visibility on ghcr.io: **the first real release is the only test of those, so it is a pre-release (`v0.1.0-beta.1`)**.
+
+### Continuous delivery to the NAS
+
+Out of scope for the pipeline, by decision: the pipeline never touches the NAS (it would need a credential for it, and the NAS is not reachable from GitHub). The NAS pulls: the user sets `VAULT_VERSION` and runs `docker compose pull && docker compose up -d` (README, "Run with Docker"), or lets a stack manager (Portainer) do it. Following `latest` with an automatic updater (Watchtower or similar) is possible but not recommended for a tool whose account is a full OMV administrator: pin an exact version and update on purpose.
+
+### Rolling back
+
+The previous image stays on the host until removed; going back is setting the previous `VAULT_VERSION`. Exact version tags never change meaning. The consumer finds the running version in the image label, the logs and the MCP handshake (section 10).
+
+## 10. Versioning and public surface
+
+**Decided (2026-11-24).**
+
+- **Format.** MAJOR.MINOR.PATCH, with an optional pre-release suffix (`0.1.0-beta.1`). The project is **0.x**: anything may break, and a breaking change raises the MINOR. The step to 1.0.0 is a decision of the user ("the surface is stable and we support it"), not an automatic result.
+- **One source: the git tag** (`v0.1.0`). The release workflow strips the `v` and passes it to the build as `VERSION`, which sets the assembly version (`-p:Version`) and the image label `org.opencontainers.image.version`. The running server reports it in its logs and traces (`service.version`) and in the MCP handshake (`serverInfo.version`). Without the argument (a local or CI build) the version is `0.0.0-dev`, so nobody mistakes it for a release. No version is typed in a project file.
+- **The next number** is proposed from the Conventional Commit types since the last tag (`fix` → patch, `feat` → minor, a breaking marker → minor while 0.x), and **the user confirms it** after reading the list against the public surface below.
+- **Changelog.** `CHANGELOG.md`, newest first, with an `Unreleased` section; breaking changes first with how to migrate; changes to configuration, the user or the port always mentioned. The GitHub release notes are the entry of that version, copied by the workflow (the entry heading must start with `## [x.y.z]`). Published entries are not edited.
+- **Public surface** (a change here is breaking; anything else is internal): the **tool names**, their parameters and result schemas, and the error codes and messages (functional spec, technical spec section 6); the **container's configuration**: the environment variables of section 4, the secret `omv_password` and its mount path, the port 8080 and `/health`, and the non-root user; the **image name and tags**; the endpoint `/mcp`; and the **variables of the compose file** (`VAULT_VERSION`, `VAULT_OMV_URL`, `VAULT_OMV_USERNAME`, `VAULT_OMV_PASSWORD`, `VAULT_PORT`), because renaming one breaks an existing `.env`. The server name in the handshake is also kept (`Vault.Mcp`).
+- **The first publication** is `0.1.0-beta.1`. The change of the credentials from `secrets/omv_credentials.json` to `Vault__OmvUsername` and the `omv_password` secret (section 4) happened before any publication, so it is not a breaking change for anyone.
+
+## 11. Open questions
+
+| # | Title | Description | Status | Priority | Comments |
+|---|---|---|---|---|---|
+| 1 | Package visibility | Whether the ghcr.io package (and the repository) become public, or the NAS logs in with a token with `read:packages`. | Open | Medium | The repository is private today. It must be decided before the first release, because it only changes one setting, but it changes how the NAS pulls (section 9). |
+
+The pending decisions that shape the rest of this document (the OMV version, the remaining tool catalog and the Docker tools) are in the functional spec; see the open questions *OMV version*, *Remaining tool catalog* and *Docker tools: data source and shape* there.
