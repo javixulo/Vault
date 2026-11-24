@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test of the Docker image: it starts as a non-root user, passes its startup validation (OMV address and credentials
+# Smoke test of the Docker image: it starts as a non-root user, passes its startup validation (OMV address, user and password
 # secret), answers /health and lists the tools over MCP. It does not exercise the tools, and it does not need an OMV: the
 # server starts even when OMV does not answer (it only warns).
 #
@@ -26,16 +26,16 @@ trap cleanup EXIT
 fail() { echo "SMOKE FAILED: $*" >&2; exit 1; }
 
 echo "Starting $image ..."
-# The OMV account is a secret file under /run/secrets, as the compose file mounts it. It is copied into a container that is
+# The OMV password is a secret file under /run/secrets, as the compose file mounts it. It is copied into a container that is
 # not started yet instead of bind-mounted: bind mounts of temporary files are not shared with Docker Desktop on macOS.
 # The file must be readable by the container's non-root user (1000).
-printf '{"username":"smoke","password":"not-a-real-password"}' > "$secret"
+printf "not-a-real-password" > "$secret"
 chmod 644 "$secret"
 # Nothing listens on port 1 of the host: the OMV is unreachable, which the server must tolerate.
 docker create --name "$name" --user 1000:1000 -p 127.0.0.1::8080 \
-  -e Vault__OmvBaseUrl=http://127.0.0.1:1 "$image" >/dev/null \
+  -e Vault__OmvBaseUrl=http://127.0.0.1:1 -e Vault__OmvUsername=smoke "$image" >/dev/null \
   || fail "the container could not be created (does the image exist?)"
-docker cp "$secret" "$name:/run/secrets/omv_credentials" >/dev/null
+docker cp "$secret" "$name:/run/secrets/omv_password" >/dev/null
 docker start "$name" >/dev/null
 
 port=""

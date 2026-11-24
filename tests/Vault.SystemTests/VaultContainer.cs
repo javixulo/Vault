@@ -5,7 +5,7 @@ using Xunit;
 namespace Vault.SystemTests;
 
 /// <summary>
-/// The Docker image running as a container, as the compose file runs it: as a non-root user, with the OMV account as a
+/// The Docker image running as a container, as the compose file runs it: as a non-root user, with the OMV password as a
 /// secret file under <c>/run/secrets</c>. It is driven with the <c>docker</c> command line. The tests are skipped unless
 /// <c>VAULT_SYSTEM_IMAGE</c> names the image to test. The OMV it talks to is a stand-in running inside the test process,
 /// reached through <c>host.docker.internal</c>.
@@ -58,7 +58,7 @@ public sealed class VaultContainer : IAsyncDisposable
         try
         {
             var result = await DockerRaw("run", "--rm", "--name", container._name, "--user", User,
-                "--add-host", $"{HostForContainer}:host-gateway", "-e", $"Vault__OmvBaseUrl={omvBaseUrl}", container._image);
+                "--add-host", $"{HostForContainer}:host-gateway", "-e", $"Vault__OmvBaseUrl={omvBaseUrl}", "-e", "Vault__OmvUsername=reader", container._image);
             return (result.ExitCode, result.Output);
         }
         finally
@@ -84,7 +84,7 @@ public sealed class VaultContainer : IAsyncDisposable
 
     private async Task CreateAsync(string omvBaseUrl, string username, string password)
     {
-        File.WriteAllText(_secretFile, System.Text.Json.JsonSerializer.Serialize(new { username, password }));
+        File.WriteAllText(_secretFile, password);
         if (!OperatingSystem.IsWindows())
         {
             // The container's user is not the owner of this file: it must be readable by others.
@@ -92,11 +92,11 @@ public sealed class VaultContainer : IAsyncDisposable
         }
 
         await Docker("create", "--name", _name, "--user", User, "-p", "127.0.0.1::8080",
-            "--add-host", $"{HostForContainer}:host-gateway", "-e", $"Vault__OmvBaseUrl={omvBaseUrl}", _image);
+            "--add-host", $"{HostForContainer}:host-gateway", "-e", $"Vault__OmvBaseUrl={omvBaseUrl}", "-e", $"Vault__OmvUsername={username}", _image);
 
-        // A secret is a file at /run/secrets/omv_credentials. It is copied into the container that is not started yet,
+        // A secret is a file at /run/secrets/omv_password. It is copied into the container that is not started yet,
         // which also works where bind-mounting a temporary file is not possible (Docker Desktop on macOS).
-        await Docker("cp", _secretFile, _name + ":/run/secrets/omv_credentials");
+        await Docker("cp", _secretFile, _name + ":/run/secrets/omv_password");
     }
 
     private async Task ConnectAsync()

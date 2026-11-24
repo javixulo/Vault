@@ -86,12 +86,13 @@ internal sealed class VaultTestServer : IAsyncDisposable
     {
         Omv = omv;
         Directory.CreateDirectory(_root);
-        var credentials = Path.Combine(_root, "omv_credentials");
-        File.WriteAllText(credentials, """{"username":"reader","password":"p"}""");
+        var password = Path.Combine(_root, "omv_password");
+        File.WriteAllText(password, "p");
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseSetting("Vault:OmvBaseUrl", "https://omv.test");
-            builder.UseSetting("Vault:CredentialsFile", credentials);
+            builder.UseSetting("Vault:OmvUsername", "reader");
+            builder.UseSetting("Vault:OmvPasswordFile", password);
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IOmvRpcClient>();

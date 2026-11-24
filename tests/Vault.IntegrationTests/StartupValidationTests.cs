@@ -13,17 +13,18 @@ public sealed class StartupValidationTests : IDisposable
 
     public void Dispose() => Directory.Delete(_folder, recursive: true);
 
-    private string Credentials(string content)
+    private string Password(string content)
     {
-        var path = Path.Combine(_folder, "omv_credentials");
+        var path = Path.Combine(_folder, "omv_password");
         File.WriteAllText(path, content);
         return path;
     }
 
-    private VaultOptions Options(string? url = "https://nas.local", string? file = null) => new()
+    private VaultOptions Options(string? url = "https://nas.local", string? file = null, string user = "reader") => new()
     {
         OmvBaseUrl = url ?? "",
-        CredentialsFile = file ?? Credentials("""{"username":"reader","password":"p"}"""),
+        OmvUsername = user,
+        OmvPasswordFile = file ?? Password("p"),
     };
 
     [Fact]
@@ -46,7 +47,7 @@ public sealed class StartupValidationTests : IDisposable
 
     [Fact]
     [Trait("Criteria", "UC-09.AC3")]
-    public void A_missing_credentials_file_stops_the_start_and_says_how_to_fix_it()
+    public void A_missing_password_file_stops_the_start_and_says_how_to_fix_it()
     {
         var problem = Assert.Single(StartupValidation.Validate(Options(file: Path.Combine(_folder, "nope"))));
 
@@ -56,12 +57,23 @@ public sealed class StartupValidationTests : IDisposable
 
     [Fact]
     [Trait("Criteria", "UC-09.AC4")]
-    public void A_credentials_file_that_is_not_valid_stops_the_start_without_printing_its_content()
+    public void An_empty_password_file_stops_the_start_and_says_how_to_fix_it()
     {
-        var problem = Assert.Single(StartupValidation.Validate(Options(file: Credentials("""{"username":"reader","password":"hunter2","""))));
+        var problem = Assert.Single(StartupValidation.Validate(Options(file: Password(""))));
 
-        Assert.Contains("not valid", problem, StringComparison.Ordinal);
-        Assert.DoesNotContain("hunter2", problem, StringComparison.Ordinal);
+        Assert.Contains("is empty", problem, StringComparison.Ordinal);
+        Assert.Contains("password file", problem, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [Trait("Criteria", "UC-09.AC7")]
+    public void A_missing_user_name_stops_the_start_and_says_how_to_fix_it(string user)
+    {
+        var problem = Assert.Single(StartupValidation.Validate(Options(user: user)));
+
+        Assert.Contains("Vault__OmvUsername", problem, StringComparison.Ordinal);
     }
 
     [Theory]

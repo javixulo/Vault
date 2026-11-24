@@ -32,22 +32,20 @@ public sealed class RpcBoundaryTests
     }
 
     [Theory]
-    [InlineData("""{"username":"reader","password":"p"}""", "reader", "p", null)]
-    [InlineData("""{"username":"reader"}""", null, null, "'password' is missing or empty")]
-    [InlineData("""{"username":"  ","password":"p"}""", null, null, "'username' is missing or empty")]
-    [InlineData("""{"username":"reader","password":""}""", null, null, "'password' is missing or empty")]
-    [InlineData("""{"username":"reader","password":123}""", null, null, "'password' is missing or empty")]
-    [InlineData("""["reader","p"]""", null, null, "it is not a JSON object")]
-    [InlineData("reader:p", null, null, "it is not valid JSON")]
-    [InlineData("", null, null, "it is not valid JSON")]
+    [InlineData("p", "p", null)]
+    [InlineData("p\n", "p", null)]
+    [InlineData("p\r\n", "p", null)]
+    [InlineData("p\n\n", "p\n", null)]
+    [InlineData("p4ss \"w\rd\" {x} $y", "p4ss \"w\rd\" {x} $y", null)]
+    [InlineData("", null, "it is empty")]
+    [InlineData("\n", null, "it is empty")]
     [Trait("Criteria", "UC-09.AC4")]
-    public void The_credentials_file_is_a_JSON_object_with_username_and_password(string content, string? username, string? password, string? problem)
+    public void The_password_secret_is_plain_text_and_one_trailing_line_break_is_ignored(string content, string? password, string? problem)
     {
-        var (credentials, found) = OmvCredentials.Parse(content);
+        var (found, foundProblem) = OmvCredentials.ParsePassword(content);
 
-        Assert.Equal(problem, found);
-        Assert.Equal(username, credentials?.Username);
-        Assert.Equal(password, credentials?.Password);
+        Assert.Equal(problem, foundProblem);
+        Assert.Equal(password, found);
     }
 
     [Fact]
@@ -55,12 +53,11 @@ public sealed class RpcBoundaryTests
     public void The_password_is_not_in_the_text_form_of_the_credentials_nor_in_the_problem_found()
     {
         var credentials = new OmvCredentials("reader", "hunter2");
-        var (_, problem) = OmvCredentials.Parse("""{"username":"reader","password":"hunter2" """);
+        var (_, problem) = OmvCredentials.ParsePassword("");
 
         Assert.DoesNotContain("hunter2", credentials.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("hunter2", problem, StringComparison.Ordinal);
     }
-
     [Theory]
     [InlineData("https://nas.local", "https://nas.local/rpc.php")]
     [InlineData("https://nas.local/", "https://nas.local/rpc.php")]

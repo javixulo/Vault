@@ -1,14 +1,19 @@
-# Vault MCP (read-only wrapper of the OpenMediaVault API). Copy this file next to your other MCPs and adjust the user and the paths.
+# Vault MCP (read-only wrapper of the OpenMediaVault API). Everything Vault needs is in this file: there is no other file to
+# create. Replace the ${VARIABLES} (or put them in a `.env` next to this file, or in the environment section of your stack
+# editor, for example Portainer's). The ones with `:?` are required: compose refuses to start without them.
+# VAULT_OMV_PASSWORD is required too: compose stops with a message if it is missing or empty.
 services:
   vault:
-    build: .
-    image: vault-mcp:latest
+    # The published image (see README, "Updating"). To build it from this repository instead, uncomment `build` and
+    # use `docker compose up -d --build`.
+    image: ghcr.io/javixulo/vault:${VAULT_VERSION:?Set VAULT_VERSION to the version to run, for example 0.1.0 (see CHANGELOG.md)}
+    # build: .
     container_name: vault-mcp
     restart: unless-stopped
-    # Non-root. The secret below is a file on the host: this user must be able to read it (`id -u`:`id -g` on the NAS).
+    # Non-root. The secret below is world-readable inside the container (mode 0444), so any user can read it.
     user: "${VAULT_UID:-1000}:${VAULT_GID:-1000}"
     ports:
-      - "${VAULT_PORT:-8080}:8080"
+      - "${VAULT_PORT:-7842}:8080"
     # Least privilege: Vault only talks HTTP(S) to OMV and writes nothing.
     cap_drop:
       - ALL
@@ -18,23 +23,26 @@ services:
       TZ: ${TZ:-Europe/Madrid}
       # Address of the OMV web interface. Vault adds /rpc.php. Required.
       Vault__OmvBaseUrl: ${VAULT_OMV_URL:?Set VAULT_OMV_URL to the address of OpenMediaVault, for example https://nas.local}
-      # Accept a self-signed TLS certificate from OMV. Off by default; see .env.template for the risk.
+      # The OMV account Vault logs in with (see README, "Set up the OMV account"). The user name is not a secret. Required.
+      Vault__OmvUsername: ${VAULT_OMV_USERNAME:?Set VAULT_OMV_USERNAME to the name of the OMV account for Vault}
+      # Accept a self-signed TLS certificate from OMV. Off by default; see README for the risk.
       Vault__AllowInvalidCertificate: ${VAULT_ALLOW_INVALID_CERTIFICATE:-false}
       # OpenTelemetry (Seq accepts OTLP over HTTP). Leave empty to export nothing; logs still go to `docker logs`.
       OTEL_SERVICE_NAME: vault-mcp
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       # Seq only accepts HTTP: the SDK default (gRPC) would fail silently. Change it only if the backend changes.
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
-      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=${VAULT_ENVIRONMENT:-production}
-    # SECURITY: the credentials of the OMV account are a Docker SECRET (a file mounted at /run/secrets/omv_credentials),
-    # NEVER an environment variable in plain text, and never in this file or in the image. The account is a full OMV
-    # account (OMV has no API keys with limited permissions): the read-only boundary is Vault's fixed list of calls, so
-    # keep this secret out of the repository and out of backups that others can read.
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=production
+    # SECURITY: the password of the OMV account is a Docker SECRET (a file mounted at /run/secrets/omv_password), NEVER an
+    # environment variable of the container: `docker inspect` shows those. The account is a full OMV administrator (OMV
+    # has no API keys with limited permissions): the read-only boundary is Vault's fixed list of calls, so use a password
+    # that is only for Vault and keep this compose file (or the stack's variables) out of the repository.
     secrets:
-      - omv_credentials
+      - omv_password
 
 secrets:
-  omv_credentials:
-    # A JSON file: {"username": "...", "password": "..."}. See secrets/omv_credentials.example.json. Keep it out of git
-    # (the secrets/ folder is git-ignored) and readable only by the owner and by VAULT_UID, for example chmod 0400.
-    file: ${VAULT_CREDENTIALS_FILE:-./secrets/omv_credentials.json}
+  omv_password:
+    # Compose builds the secret from the VAULT_OMV_PASSWORD variable, so no file is needed on the host. The value is taken
+    # literally: no escaping, `$` and quotes are fine here. (In a `.env` file put the value in single quotes if it has `$`
+    # or `#`.) If you prefer a file, replace this line with `file: ./secrets/omv_password` (the password as plain text).
+    environment: VAULT_OMV_PASSWORD

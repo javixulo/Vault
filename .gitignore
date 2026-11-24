@@ -1,9 +1,8 @@
-# Secrets. The OMV account lives in secrets/ and is never committed (only the example is).
+# Secrets. A password file, if you use one, lives in secrets/ and is never committed.
 .env
 .github-token
 *.token
 /secrets/*
-!/secrets/omv_credentials.example.json
 
 # .NET
 bin/

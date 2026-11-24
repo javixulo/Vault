@@ -11,7 +11,7 @@ C# / .NET 10 MCP server: a **read-only** wrapper of the OpenMediaVault (OMV) JSO
 - Write documentation and code in English and communicate with the user in Spanish.
 - **Never add an OMV RPC call to the exposed list (`OmvRpcCall.Exposed`) unless it is documented as read-only in the functional spec, section "RPC calls", first.** There is no passthrough: no tool takes an OMV service or method name, and `OmvRpcCall` cannot be built from outside. A test checks that the spec and the code list the same calls.
 - Every tool is read-only (`ReadOnly = true`). Vault has no tool that changes the NAS; levels above read-only are out of scope until the user decides otherwise.
-- The OMV credentials are a Docker secret (a file), never an environment variable, a log line, a message or the repository.
+- The OMV password is a Docker secret (a file), never an environment variable of the container, a log line, a message or the repository.
 
 ## Skills
 
@@ -32,7 +32,7 @@ dotnet test
 dotnet run --project src/Vault.Mcp
 ```
 
-`dotnet run` needs `Vault__OmvBaseUrl` and a credentials file (`Vault__CredentialsFile`, a JSON file with `username` and `password`); see the README.
+`dotnet run` needs `Vault__OmvBaseUrl`, `Vault__OmvUsername` and a password file (`Vault__OmvPasswordFile`, plain text); see the README. The container is configured only through its compose file (technical spec, section 4). Releases are published by `.github/workflows/release.yml` when a `v*.*.*` tag is pushed (technical spec, section 9): never publish an image by hand.
 
 ## Git and secrets
 

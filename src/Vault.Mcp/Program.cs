@@ -25,6 +25,9 @@ using Vault.Mcp.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// The version stamped by the build from the release tag (0.0.0-dev when it is not a release); the MCP handshake reports it too.
+var vaultVersion = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0-dev";
+
 // Logs go to the console on stderr (so `docker logs` works when the OTLP backend is down) and to OpenTelemetry.
 builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
 
@@ -32,7 +35,7 @@ var otlp = builder.Services.AddOpenTelemetry()
     // service.name and service.version here; deployment.environment.name comes from OTEL_RESOURCE_ATTRIBUTES (technical spec, section 3).
     .ConfigureResource(resource => resource.AddService(
         builder.Configuration["OTEL_SERVICE_NAME"] ?? "vault-mcp",
-        serviceVersion: typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]))
+        serviceVersion: vaultVersion))
     .WithTracing(tracing => tracing.AddSource(Telemetry.SourceName).AddAspNetCoreInstrumentation())
     .WithLogging();
 if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
@@ -42,7 +45,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
 
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.Section));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<VaultOptions>>().Value);
-builder.Services.AddSingleton<IOmvCredentialsProvider>(sp => new FileCredentialsProvider(sp.GetRequiredService<VaultOptions>().CredentialsFile));
+builder.Services.AddSingleton<IOmvCredentialsProvider>(sp => new FileCredentialsProvider(sp.GetRequiredService<VaultOptions>().OmvUsername, sp.GetRequiredService<VaultOptions>().OmvPasswordFile));
 // One client for the whole life of the process: the session cookie of OMV lives in this handler, so it must not be recycled
 // by an HttpClientFactory. The pooled connections are renewed from time to time so a change of IP of the NAS is noticed.
 builder.Services.AddSingleton<IOmvRpcClient>(sp =>
@@ -89,7 +92,7 @@ var json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
 };
 
 builder.Services
-    .AddMcpServer()
+    .AddMcpServer(options => options.ServerInfo = new() { Name = "Vault.Mcp", Version = vaultVersion })
     .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
     .WithRequestFilters(filters => filters.AddCallToolFilter(ToolErrorFlag.Apply))
     .WithTools<SystemStatusTool>(json)

@@ -25,11 +25,16 @@ public static class StartupValidation
             problems.Add($"Vault__TimeoutSeconds is {options.TimeoutSeconds}: it must be between 1 and 120.");
         }
 
-        CheckCredentials(options.CredentialsFile, problems);
+        if (string.IsNullOrWhiteSpace(options.OmvUsername))
+        {
+            problems.Add("The OMV user name is not set. Set Vault__OmvUsername to the name of the OMV account Vault logs in with.");
+        }
+
+        CheckPassword(options.OmvPasswordFile, problems);
         return problems;
     }
 
-    private static void CheckCredentials(string path, List<string> problems)
+    private static void CheckPassword(string path, List<string> problems)
     {
         var full = Path.GetFullPath(path);
         string content;
@@ -40,15 +45,15 @@ public static class StartupValidation
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             problems.Add(
-                $"The credentials file '{full}' cannot be read by the running user: {error.Message} " +
-                "Mount the OMV account as a Docker secret (see docker-compose.yml), make it readable by the container's user, or set Vault__CredentialsFile.");
+                $"The password file '{full}' cannot be read by the running user: {error.Message} " +
+                "Mount the OMV password as a Docker secret (see docker-compose.yml), make it readable by the container's user, or set Vault__OmvPasswordFile.");
             return;
         }
 
-        var (_, problem) = OmvCredentials.Parse(content);
+        var (_, problem) = OmvCredentials.ParsePassword(content);
         if (problem is not null)
         {
-            problems.Add($"The credentials file '{full}' is not valid: {problem}. It must be a JSON object like {{\"username\": \"...\", \"password\": \"...\"}}.");
+            problems.Add($"The password file '{full}' is not valid: {problem}. It must hold the password of the OMV account, as plain text.");
         }
     }
 }

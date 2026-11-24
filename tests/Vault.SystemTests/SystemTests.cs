@@ -65,7 +65,7 @@ public sealed class SystemTests
         var (exitCode, output) = await VaultContainer.RunWithoutSecretAsync("http://omv.invalid");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains("credentials file", output, StringComparison.Ordinal);
+        Assert.Contains("password file", output, StringComparison.Ordinal);
         Assert.Contains("Docker secret", output, StringComparison.Ordinal);
     }
 
