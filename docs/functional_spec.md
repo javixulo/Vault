@@ -78,9 +78,9 @@ An entry of `list_services`.
 
 | Field | Notes |
 |---|---|
-| `name` | `smb`, `nfs`, `ssh`, `docker`, and whichever others OMV reports (see the open question *Remaining tool catalog*) |
-| `enabled` | Whether the service is configured to run |
-| `running` | Whether it is running right now. `null` when Vault could not read it for this one service (see UC-14.AC2) |
+| `name` | The service name as OMV gives it (`Docker`, `nfs`, `samba`, `ssh`... as the test NAS reports them, with `samba` and not `smb`): whichever services OMV reports, Vault keeps no list of its own |
+| `enabled` | Whether the service is configured to run. `null` when OMV does not say (see UC-14.AC2) |
+| `running` | Whether it is running right now. `null` when OMV does not say (see UC-14.AC2) |
 
 ### Disk
 
@@ -355,7 +355,7 @@ How it works: Vault calls `UserMgmt.enumerateAllUsers` (`{detail: "basic"}`) and
 
 ### 2.6 Tool `list_services`
 
-Reports whether SMB, NFS, SSH, Docker and the other OMV-managed services are enabled and running. The exact set of services OMV exposes this way is not confirmed yet (see the open question *Remaining tool catalog*).
+Reports whether SMB, NFS, SSH and the other OMV-managed services are enabled and running. The set of services is whatever OMV reports: Vault has no list of its own.
 
 **Input:** none.
 
@@ -363,7 +363,8 @@ Reports whether SMB, NFS, SSH, Docker and the other OMV-managed services are ena
 
 | Field | Type | Notes |
 |---|---|---|
-| `services` | list of Service | Every service Vault knows how to ask OMV about |
+| `services` | list of Service | Every service OMV reports, in OMV's order |
+| `message` | text | Set when `services` is empty: why, and what to do next |
 | `error` | Error | Empty when the call worked. See section 3 |
 
 #### UC-14 · List service status
@@ -372,8 +373,12 @@ Reports whether SMB, NFS, SSH, Docker and the other OMV-managed services are ena
 
 | ID | Name | Given | When | Then |
 |---|---|---|---|---|
-| UC-14.AC1 | Report what OMV says | OMV reports every service's state | The client calls the tool | Success, and `services` has one entry per known service, each with `enabled` and `running`. `error` is empty |
-| UC-14.AC2 | One service cannot be read | OMV answers for every service except one | The client calls the tool | Success. The service that failed has `running` set to `null`; every other service is reported normally. The call is not an error |
+| UC-14.AC1 | Report what OMV says | OMV reports the state of its services | The client calls the tool | Success, and `services` has one entry per service OMV reported, in OMV's order, each with `name`, `enabled` and `running`. `message` and `error` are empty |
+| UC-14.AC2 | A state OMV does not report | A service entry has no `enabled` or no `running` | The client calls the tool | Success, and that field is `null` on that entry; every other field and entry is reported normally. The call is not an error |
+| UC-14.AC3 | An answer Vault cannot read | OMV answers with something that is not a list, or sends a service entry without a name | The client calls the tool | Failed, with `omv_bad_response`, and no partial result: an entry left out would look like a service that does not exist |
+| UC-14.AC4 | No services | OMV reports an empty list | The client calls the tool | Success, `services` empty and a `message` that says OMV reported none. The call is not an error |
+
+How it works: Vault calls `Services.getStatus` once, which answers with a list of `{name, title, enabled, running}`. Checked against a real OMV 8.5.12 on 2026-11-24: the answer is the plain list described, with `enabled` and `running` as booleans. The mapping stays tolerant (a list, or an object with a `data` list; a boolean may arrive as 0/1; a missing field is `null`), and `title` is not passed on.
 
 ### 2.7 Tool `list_disks`
 
@@ -571,12 +576,12 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 | `ShareMgmt.getFileACL` (`params: {uuid, file: "/"}`) | `get_folder_acl` | Returns, for a shared folder given by uuid, the POSIX `owner` and `group` of its root and an `acl` with the base permissions (`user`, `group`, `other`, each 0 to 7) and one entry per OMV user and group in `users` and `groups`, with `perms` (0 to 7, or `null` when it has no entry) | A `get` that reads the configured ACL; does not run `setfacl` |
 | `UserMgmt.enumerateAllUsers` (`params: {detail: "basic"}`) | `list_users_and_groups` | Returns every OMV user (system ones too) as a list of `{name, uid, gid, comment, dir, shell, groups, system}` | A `get` that reads the configured list |
 | `UserMgmt.enumerateAllGroups` | `list_users_and_groups` | Returns every OMV group (system ones too) as a list of `{name, gid, members, system}` | A `get` that reads the configured list |
+| `Services.getStatus` | `list_services` | Returns every service OMV manages as a list of `{name, title, enabled, running}`; on the test NAS: `Docker`, `cterm`, `nfs`, `rsyncd`, `samba` and `ssh` | A `get` that reads the state of the services; starts and stops none |
 
-**Not confirmed at all yet** — the team's best reading of OMV's own source and documentation for the rest of sections 2.6 to 2.9, never tested against a server and never seen in real traffic either. A call here can change name, parameters or disappear once checked; see the open question *Remaining tool catalog*. None of the calls on this page is exposed in the code yet; when a call is confirmed (request or, better, a real response), its row moves up.
+**Not confirmed at all yet** — the team's best reading of OMV's own source and documentation for the rest of sections 2.7 to 2.9, never tested against a server and never seen in real traffic either. A call here can change name, parameters or disappear once checked; see the open question *Remaining tool catalog*. None of the calls of this table is exposed in the code yet; when a call is confirmed (request or, better, a real response), its row moves up.
 
 | RPC call | Used by | What it does | Why it is read-only |
 |---|---|---|---|
-| `Smb.getStatus`, `Nfs.getStatus`, `Ssh.getStatus`, and one per other known service | `list_services` | Returns whether that service is enabled and running | Each is a `get` that reads the state of one service; which services OMV exposes this way is itself unconfirmed |
 | `DiskMgmt.enumerateDevices` | `list_disks` | Returns the disks OMV sees | A `get` that reads the configured list |
 | `Smart.getList` or `Smart.getInformation` (one per disk) | `list_disks` | Returns the SMART status of a disk | A `get` that reads SMART data; does not run a new SMART test |
 | `Cron.getList` | `list_scheduled_tasks` | Returns the configured cron jobs and their last run | A `get` that reads the configured list |
@@ -587,6 +592,6 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 | # | Title | Description | Status | Priority | Comments |
 |---|---|---|---|---|---|
 | 1 | OMV version | Whether the services Vault calls (`Session`, `System`, `ShareMgmt`) keep the same methods, parameters and answer fields as OMV is updated. | Half-way | High | The real NAS runs OMV 8.5.12-1 (a UGREEN DXP2800, updated regularly), so Vault targets OMV 8.x. Checked against OMV 8.5.1 in a community Docker image (no systemd, no disks, no shared folders): the login answer (`status: "authenticated"`, not `authenticated: true`), the session cookie, HTTP 401 for an invalid session, HTTP 400 for a bad login and the fields of `System.getInformation` are confirmed, and Vault works against it. Also checked against the real 8.5.12-1 with an account in the group `openmediavault-admin`: both tools work and `ShareMgmt.getList` returns `reldirpath` and `comment` as assumed. Left: whether an account outside that group can call these methods (the real test was not done without the group), and how to notice that an OMV update changed an answer. |
-| 2 | Remaining tool catalog | Tool 2.5 (`list_users_and_groups`) is built and confirmed against the real NAS (2026-11-24: OMV's users have `comment`, `groups` and `system` and no "disabled" flag, so the model's `disabled` is gone and `system` splits the result in two blocks). Tools 2.6 to 2.9 (`list_services`, `list_disks`, `list_scheduled_tasks`, `list_pending_updates`) are specified with their input, output and acceptance criteria but not built; `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: for `list_services`, `list_disks`, `list_scheduled_tasks` and `list_pending_updates`, even the calls themselves are unconfirmed; `list_services`'s exact set of services and calls is the least certain of all of them. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: confirm each remaining call against the real NAS the way `list_users_and_groups` was (expose the call, read the real answer, fix the models and `FakeOmvServer`). One at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
+| 2 | Remaining tool catalog | Tool 2.5 (`list_users_and_groups`) is built and confirmed against the real NAS (2026-11-24: OMV's users have `comment`, `groups` and `system` and no "disabled" flag, so the model's `disabled` is gone and `system` splits the result in two blocks). Tool 2.6 (`list_services`) is built and confirmed against the real NAS (2026-11-24: one `Services.getStatus` call answers a plain list of `{name, title, enabled, running}`); tools 2.7 to 2.9 (`list_disks`, `list_scheduled_tasks`, `list_pending_updates`) are specified with their input, output and acceptance criteria but not built; `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: for `list_disks`, `list_scheduled_tasks` and `list_pending_updates` even the calls themselves are unconfirmed. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: confirm each remaining call against the real NAS the way `list_users_and_groups` was (expose the call, read the real answer, fix the models and `FakeOmvServer`). One at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
 | 3 | Credentials secret | How the OMV account reaches the container. Settled: a Docker secret mounted as a file (`secrets/omv_credentials.json`, see `.example.json`), never an environment variable or the repository; and the file is the JSON object `{"username", "password"}` proposed in the technical spec. Still open: who creates and rotates the secret, and the file permissions for the non-root user the container runs as. | Half-way | Medium | Left to settle: who creates and rotates the secret, and the file permissions for the container's user (technical spec, section 4). |
 | 4 | Docker containers source | Whether the status of the containers on the NAS comes from OMV (its Docker plugin, if it has an RPC for it), from the Docker socket or from Portainer. It is probably outside the RPC of OMV, and a socket gives much more access than Vault should have. | Open | Medium | Decide before building the containers tool. |
