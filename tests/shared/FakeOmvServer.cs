@@ -13,7 +13,7 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c> and <c>UserMgmt.enumerateAllGroups</c>, and it
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c> and <c>Services.getStatus</c>, and it
 /// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
 /// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
@@ -166,6 +166,12 @@ public sealed class FakeOmvServer : IAsyncDisposable
             {
                 new { name = "family", gid = 1000, members = new[] { "ana", "kid" }, system = false },
                 new { name = "admins", gid = 1001, members = Array.Empty<string>(), system = false },
+            }),
+            // Shape checked against a real OMV 8.5.12 (2026-11-24): a plain list of {name, title, enabled, running}.
+            ("Services", "getStatus") => Ok(new[]
+            {
+                new { name = "ssh", title = "SSH", enabled = true, running = true },
+                new { name = "smb", title = "SMB/CIFS", enabled = true, running = false },
             }),
             _ => Error(1, $"Unknown method {service}.{method}."),
         };

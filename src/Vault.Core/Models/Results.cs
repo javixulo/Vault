@@ -139,6 +139,26 @@ public sealed record UsersAndGroupsResult(
     public static UsersAndGroupsResult Failure(VaultError error) => new(UsersAndGroups.None, UsersAndGroups.None, null, error);
 }
 
+/// <summary>A service OMV manages. <c>Enabled</c> and <c>Running</c> are null when OMV does not say.</summary>
+public sealed record OmvService(string Name, bool? Enabled, bool? Running);
+
+/// <summary>Outcome of <c>list_services</c>. <c>Message</c> is set when there is nothing to return.</summary>
+public sealed record ServicesResult(
+    IReadOnlyList<OmvService> Services,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static ServicesResult Found(IReadOnlyList<OmvService> services) => new(services);
+
+    public static ServicesResult Empty(string message) => new([], message);
+
+    public static ServicesResult Failure(VaultError error) => new([], null, error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";
