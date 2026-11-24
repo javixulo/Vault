@@ -1,0 +1,202 @@
+name: Release
+
+# Publishes the Docker image to the GitHub container registry (ghcr.io) when a version tag is pushed (v1.2.3, v0.2.0-beta.1).
+# The tag is the only place the version is typed: the image tags, the image label and the version the running server reports
+# all come from it. It publishes only an image that passed its tests, and nothing else can publish: pull requests and
+# branches never reach the publishing job. `release-dry-run.yml` rehearses all of this without publishing.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+# Two pushes of the same tag never overlap, and a release is never cancelled half-way.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The tests of every level that does not need the image, on the tagged commit, and a check that the commit is in main.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error title=Release::The tag '$TAG' is not a semantic version with a leading v (for example v0.2.0 or v0.2.0-beta.1)."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error title=Release::The tagged commit is not in main. Tag a commit that is in main."
+            exit 1
+          fi
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: Test (unit, integration and contract)
+        run: dotnet test -c Release
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Only this job can write packages. The built-in token is enough: no registry password is stored in the repository.
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Work out the version and the image name
+        id: names
+        env:
+          TAG: ${{ github.ref_name }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          # Image names in the registry are lowercase.
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${OWNER,,}/vault" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # The full version, the minor and the major (the last two move on purpose; the major is skipped while 0.x), the commit,
+      # and `latest` only for a version without a suffix.
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ steps.names.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short
+          flavor: latest=auto
+
+      # Build once for the runner's architecture and test that very build. The multi-platform push below reuses these layers
+      # from the cache, so the amd64 image that is published is the one that was tested.
+      - name: Build the image to test
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          load: true
+          tags: vault-mcp:release-test
+          build-args: VERSION=${{ steps.names.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: bash scripts/smoke-test.sh vault-mcp:release-test
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: System tests
+        env:
+          VAULT_SYSTEM_IMAGE: vault-mcp:release-test
+        run: dotnet run --project tests/Vault.SystemTests -c Release
+
+      # Warns, never blocks: a release should not depend on when somebody else publishes a fix. Read it in the job summary.
+      - name: Scan the image for known vulnerabilities
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: vault-mcp:release-test
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table
+          output: trivy-report.txt
+
+      - name: Report the scan
+        if: always()
+        run: |
+          {
+            echo "## Vulnerability scan (HIGH and CRITICAL with a fix; informative, it does not block)"
+            echo '```'
+            cat trivy-report.txt 2>/dev/null || echo "The scan did not produce a report."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the multi-platform image
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.names.outputs.version }}
+          cache-from: type=gha
+          # Evidence attached to the image: what it contains and how and from which commit it was built.
+          sbom: true
+          provenance: mode=max
+
+      - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "## Published"
+            echo
+            echo "Digest: \`$DIGEST\`"
+            echo
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+            echo
+            echo "First release of a new package: ghcr.io may create it **private**. Check its visibility in the repository's Packages."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The release notes are the changelog entry of that version, copied, not a second text.
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          # The section of CHANGELOG.md that starts with "## [version]" and ends before the next "## ".
+          awk -v v="$version" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::warning title=Release::CHANGELOG.md has no entry for $version; the release notes are empty."
+            echo "No changelog entry for this version." > notes.md
+          fi
+          flags=()
+          if [[ "$version" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$TAG" --title "$TAG" --notes-file notes.md "${flags[@]}"
