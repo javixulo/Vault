@@ -13,7 +13,7 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c> and <c>ShareMgmt.getFileACL</c>, and it
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c> and <c>UserMgmt.enumerateAllGroups</c>, and it
 /// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
 /// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
@@ -156,6 +156,17 @@ public sealed class FakeOmvServer : IAsyncDisposable
             ("ShareMgmt", "getList") => SharedFolderList(parameters),
             ("ShareMgmt", "getPrivileges") => FolderPrivileges(parameters),
             ("ShareMgmt", "getFileACL") => FolderAcl(parameters),
+            // Shapes checked against a real OMV 8.5.12 (2026-11-24): users {name, uid, gid, comment, dir, shell, groups, system}, groups {name, gid, members, system}.
+            ("UserMgmt", "enumerateAllUsers") => Ok(new[]
+            {
+                new { name = "ana", uid = 1000, gid = 100, comment = "Ana Lopez", dir = "/home/ana", shell = "/bin/sh", groups = new[] { "family" }, system = false },
+                new { name = "kid", uid = 1001, gid = 100, comment = "", dir = "/home/kid", shell = "/bin/sh", groups = new[] { "family" }, system = false },
+            }),
+            ("UserMgmt", "enumerateAllGroups") => Ok(new[]
+            {
+                new { name = "family", gid = 1000, members = new[] { "ana", "kid" }, system = false },
+                new { name = "admins", gid = 1001, members = Array.Empty<string>(), system = false },
+            }),
             _ => Error(1, $"Unknown method {service}.{method}."),
         };
     }
