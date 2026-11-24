@@ -11,8 +11,8 @@ Delivery is the step where an image leaves your control, so it has to be exactly
 
 Do not write a release workflow from guesses. Ask the human, proposing a default for each answer:
 
-- The registry and the name of the image (default: the registry of the code host).
-- How a release is created (default: pushing a version tag such as `v1.2.3`).
+- The registry and the name of the image (**default: GitHub Container Registry, `ghcr.io/<owner>/<app>`**, lowercase). Why it is the default: the workflow logs in with its built-in token, so no long-lived registry password is stored; the package is tied to the repository; and public pulls have no rate limit. Another registry (Docker Hub) is a deliberate choice that adds a stored access token.
+- How a release is created (**default: from the GitHub web page, Releases → Draft a new release, choosing "Create new tag on publish"**; the tag it creates starts the workflow. Pushing a version tag from a terminal does the same and must also work).
 - The CPU architectures the image must run on, and which of them can be tested.
 - Who pulls the image and how they update (by hand, by a scheduler, by an orchestrator).
 - How much supply chain evidence they want (section 5).
@@ -27,7 +27,8 @@ Do not publish from a developer machine. A machine's state is not reproducible a
 ## 2. Versions and tags
 
 - A release comes from an immutable version tag in version control, with a version number of the form MAJOR.MINOR.PATCH, optionally with a pre-release suffix. The image tags are derived from it by the workflow, never typed.
-- Tags to publish: the full version, the minor (`1.2`), the major (`1`) and the commit. The major and minor tags move on purpose; the full version and the commit tag never do.
+- Tags to publish: the full version, the minor (`1.2`), the major (`1`) and the commit. The major and minor tags move on purpose; the full version and the commit tag never do. (While the major is 0, the usual tag action skips the major tag; that is intended.)
+- **The tag is the trigger, so protecting it is part of the design:** only the owner may create tags that match the version pattern (section 4, "Who can release").
 - `latest` points only at the newest stable version: never at a pre-release.
 - Never overwrite a published version tag. Rollback depends on an exact version still meaning the same image. If a release is wrong, publish a new one.
 - Say in the README which tag to follow. Consumers who need exact repeatability pin the digest.
@@ -45,7 +46,24 @@ Build for the architectures of the hosts that will run it, in one multi-platform
 - Log in with the built-in workflow token, not a personal one. No long-lived registry password in the repository.
 - Pin third-party actions to a commit, as in `ci-pipeline`. Pass no secrets as build arguments.
 - Image names in this registry are lowercase. Compute the name instead of typing it.
-- After the first publication, check the package's visibility and that it is linked to the repository: new packages may start private, and the people who need to pull it cannot.
+- After the first publication, check the package's visibility and that it is linked to the repository: new packages may start private, and the people who need to pull it cannot. Check it without logging in (ask the registry for the tag list anonymously): that is what a consumer will see. If it is private, either make the package public in its settings or tell consumers to log in once with a token that can read packages.
+
+### The release workflow, step by step
+
+Triggered only by a version tag, with these jobs in order, each failing the release if it fails:
+
+1. **Verify.** The tag is a semantic version with a leading `v`; the tagged commit is in the main branch (fetch the full history to check); the tests that do not need the image pass. A tag on a stray commit must not publish.
+2. **Build and test the image.** Build it for the runner's architecture and load it (not push); run the smoke test and the system tests on it.
+3. **Scan** (warn only, section 5), **log in** with the built-in token and **push** the multi-platform image reusing the layers of step 2, with the tags of section 2, an SBOM and provenance. Write the digest and the tags in the job summary.
+4. **GitHub release.** Its title and notes are the changelog entry of that version (see `versioning-and-changelog`). A person may already have created the release from the web page when making the tag, so the step must **edit it if it exists and create it if not**; a plain "create" fails on the first case. Mark it pre-release when the version has a suffix.
+
+Two facts that cost a failed run: the workflow that runs is **the file at the tagged commit**, so a fix to the workflow must already be in the main branch before the tag is made; and a release created from the web page exists for a few minutes before its image does, so if the workflow fails before the push, delete the release and the tag and repeat with the same number (nothing was published). If the image was already pushed, the number is spent: publish the next one.
+
+### Who can release
+
+- A tag ruleset that restricts creating tags matching `v*` to the owner (or to the maintainers' role). Whoever can create the tag can publish an image, so this is the real release permission.
+- Pull requests from forks run no workflow until a maintainer approves them (repository Actions settings), and the publishing job is unreachable from pull requests anyway.
+- Branch protection of the main branch is in `ci-pipeline`.
 
 ## 5. Supply chain evidence
 
@@ -60,13 +78,14 @@ Proportional to the audience. Default for a small project:
 
 A manual workflow that does everything except publish: it starts a throwaway registry as a service of the job, builds the multi-platform image, pushes it there, pulls it back, runs the same tests on the pulled image, and writes in the job summary the tags it would publish and the manifest it pushed. It has read-only permissions and no login to any real registry.
 
-It proves the build, the tags, the platforms and the push and pull mechanics. It cannot prove the login, the permissions and the visibility of the real registry; the first real release is the only test of those, so make it a pre-release, and say so in the spec.
+It proves the build, the tags, the platforms and the push and pull mechanics. It cannot prove the login, the permissions and the visibility of the real registry; the first real release is the only test of those, so make it a pre-release, and say so in the spec. Order: rehearsal, first release as a pre-release, run that image where it will really run, then the first stable release. A pre-release never moves `latest`, so consumers who try it name its exact version.
 
 ## 7. Updating and rolling back
 
 Delivery ends where the consumer starts, so write down for them:
 
-- How to update (pull a specific version, recreate the container) and how to see which version runs (labels, or a version in the health response).
+- How to update (pull a specific version, recreate the container) and how to see which version runs (labels, the logs, or the version a protocol handshake reports). The consumer's compose file pins the version in a required variable (`containerize-app`, section 7.1): updating is changing that number, a decision.
+- Deployment to the consumer's machine is the consumer's compose file, not the pipeline's job: the pipeline never gets a credential for their server. Recommend against automatic updaters that follow `latest` for anything holding a powerful credential; offer, at most, a notification of new releases.
 - That the previous image stays on the host until the new one is confirmed, so going back is starting the old tag.
 - What changed in each release: a short changelog that names changes to configuration, mounted folders or the user, because those break a running installation.
 
@@ -79,3 +98,6 @@ Delivery ends where the consumer starts, so write down for them:
 - Do the platforms match the hosts, and is what was not tested stated?
 - Does the rehearsal run without any credential and publish nothing?
 - Can a consumer find the version running, update, and go back, from the README alone?
+- Does the release step cope with a release that already exists? Does a tag on a commit outside the main branch fail in the first job?
+- Can only the owner create a version tag? Is the package pullable the way the README says, checked anonymously?
+- Is the workflow itself linted (a tool such as actionlint) before it is tagged?

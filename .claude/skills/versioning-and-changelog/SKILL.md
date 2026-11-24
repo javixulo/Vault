@@ -43,7 +43,7 @@ The version lives in exactly one place, the tag on the commit that was released 
 
 - The build reads the tag and **stamps it into** the application's metadata, the image label, and whatever the app reports about itself at run time: its logs and telemetry (see `app-telemetry`), the handshake of a protocol that carries a server version, a version command or endpoint. The version someone sees on a running app must be the released one.
 - Builds that are not a release carry a clearly different version (the last tag plus the commit, or a development marker), so nobody mistakes them for one.
-- Check that the stamping works: a version that is the framework's default (such as 1.0.0) on every build means the tag never reached the build.
+- Check that the stamping works: a version that is the framework's default (such as 1.0.0) on every build means the tag never reached the build. The version goes into the image through a build argument (the build context usually has no version-control folder), and some libraries report their own default, not yours: a protocol handshake that says `1.0.0.0` has to be set explicitly from the stamped value.
 - Do not keep a hand-edited version in a file next to the tag: two sources drift. If a tool insists on a file, generate it in the build.
 
 ## 4. Choosing the next number
@@ -60,15 +60,16 @@ A file in the repository (`CHANGELOG.md`), newest version first, so it travels w
 - **Breaking changes go first,** marked clearly, each with how to migrate: the old way, the new way, and whether data needs converting. This is the part users read.
 - Mention what changed in configuration, mounted folders and the user a container runs as, even if small. Those break installations that "did nothing".
 - Link each entry to the change (a commit, an issue or a pull request) when it helps.
-- **The release notes are the changelog entry of that version,** copied, not a second text to write.
+- **The release notes are the changelog entry of that version,** copied, not a second text to write. The release workflow does the copy by finding the heading, so the heading format is a contract: `## [x.y.z] - date`, starting exactly with `## [x.y.z]`. Whatever is typed in the release's notes box on the web page is replaced by it.
+- **The first version is written as a first version:** what the thing is, what it can do (for a server, the list of its tools or endpoints), and how it is run and configured. It does not mention pre-releases that came before it, and it is not a list of commits. A pre-release gets its own short entry.
 - Do not edit the entries of published versions. A correction is a new line in the next version.
 
 ## 6. A release, in order
 
 1. Confirm the public surface list is up to date.
 2. Propose the number from the commits and have the human confirm it.
-3. Draft and edit the changelog entry. Commit it.
-4. Tag that commit with the version. The release workflow takes it from there.
+3. Draft and edit the changelog entry. Commit it to the main branch and let its CI pass.
+4. Make the tag **from the code host's web page** (Releases → Draft a new release → "Create new tag on publish", the version with a leading `v`, "pre-release" ticked when it has a suffix). The release workflow takes it from there (`container-delivery`). From a terminal, pushing the tag is equivalent.
 5. Check that the published artifacts and the running app report that version.
 
 ## 7. Check it

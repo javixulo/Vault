@@ -89,6 +89,7 @@ This table is the one place that names the backend. The rest of the skill does n
 | Endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`) | `http://<backend-host>:5341/ingest/otlp`; the SDK adds `/v1/logs` and `/v1/traces` itself |
 | Signals accepted | logs and traces; no metrics |
 | Authentication | none, trusted local network only; if enabled later, send the key in `OTEL_EXPORTER_OTLP_HEADERS` |
+| Starting a disposable one to test | `docker run -d -e ACCEPT_EULA=Y -e SEQ_FIRSTRUN_NOAUTHENTICATION=true datalust/seq`. Without that last variable (or an admin password) Seq refuses to start at its first run. Put it and the app on one Docker network and use the container name as `<backend-host>` |
 
 Replace `<backend-host>` with the address the human gives for the shared backend (a container name on a shared network, or the name of the host). If the backend stops being reachable by every app directly, put an OpenTelemetry collector in front: apps keep sending OTLP to the collector, and only the collector knows the new backend.
 
@@ -99,7 +100,7 @@ Run the app and look at the backend, not at the code:
 - With the endpoint empty, the app starts, works and logs to the console.
 - With it set, trigger one successful and one failing operation: both appear, with the right service name, version and environment.
 - Find the failing one by its trace id, and see the log lines and the spans together.
-- Read the stored records and confirm there is no user content, secret or full body in them.
+- Read the stored records and confirm there is no user content, secret or full body in them. Search them for the real secret value, not only for the word "password". Check that `service.name`, `service.version` and the environment arrive as resource attributes (the backend may show them under the record's resource, not among its properties).
 - Stop the backend: the app still answers at normal speed and the console still shows the logs. Start it again: new records arrive.
 - Call it from another instrumented service, or from the real client, with a `traceparent`: the records of both share one trace id. Call it with none: it starts its own trace and still works.
 - Compare attribute names with another project's: the same concept has the same name.

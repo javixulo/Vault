@@ -59,6 +59,16 @@ The workflow runs code from outside the repository (actions) and, on pull reques
 - **Set `timeout-minutes` on every job.** A hung job otherwise burns the default six hours.
 - **One source of truth for repeated values** (versions, revisions, checksums). When the same value is copied in two files, one of them will be forgotten.
 
+### 4.1 Repository settings that complete the hardening
+
+The workflow file is half of the security; the repository settings are the other half. They are set by hand on the repository's web page (the code host's API tools usually cannot change them), so write them down in the spec and check them at the end.
+
+- **Order matters.** A required status check can only be chosen after the workflow has run once. So: push, let the CI run, and only then create the rules.
+- **A ruleset for the main branch** (Settings → Rules → Rulesets): require a pull request with one approval, require the final check of section 6, block force pushes and deletion. The sole owner cannot approve their own pull request, so add **the owner as a bypass actor** (repository admin); pull requests from anyone else still need the owner's review.
+- **A ruleset for version tags** (`v*`) that restricts who can create them: the tag starts the release (`container-delivery`).
+- **Actions → General:** require approval to run workflows of pull requests from forks, for all external contributors, so a fork cannot run code in your pipeline before you read it; keep the default workflow permission read-only. The option is called "Require approval for all external contributors" in the repository settings (the enterprise policy page says "outside collaborators").
+- **Before making a repository public,** read its whole history for secrets and for personal data that the history carries (author e-mail addresses are in every commit). Removing a secret from a later commit does not remove it from the history.
+
 ## 5. Make failures diagnosable
 
 A red job should say what broke without a rerun.
@@ -96,6 +106,7 @@ Read the workflow top to bottom and answer, with no help from the author:
 - Can a pull request from a fork reach a secret or a write permission?
 - After a red run, can you tell what failed from the artifacts alone?
 - Does the final check cover every job, and is it the only one the protection requires?
+- Is each workflow linted (actionlint, which also runs shellcheck on the scripts) and does a pull request from a fork wait for approval? Do the rulesets of section 4.1 exist, with the final check as the required one?
 - Does the bot configuration group its updates, run at the agreed rhythm and ignore every version the project's requirements rule out, each with a comment that names the requirement?
 
 Run it for real: a green run, a run with a deliberately failing test in each level, and a run with a cold cache.
