@@ -2,7 +2,7 @@
 
 > Draft in review: use cases and acceptance criteria, one section per tool. Vault is a **read-only** MCP server that wraps the JSON-RPC API of OpenMediaVault (OMV), so an agent can ask about the state of the NAS (permissions, services, disks, users, backups) without shell access.
 >
-> **Ten tools are built and confirmed** against a real OMV 8.5.12 (`get_folder_permissions` and `get_folder_acl` were checked by reading the real answers of `ShareMgmt.getPrivileges` and `ShareMgmt.getFileACL` on 2026-11-23, and `list_users_and_groups`, `list_services`, `list_disks`, `list_filesystems`, `list_scheduled_tasks` and `list_pending_updates` those of `UserMgmt.*`, `Services.getStatus`, `DiskMgmt.enumerateDevices` / `Smart.getList`, `FileSystemMgmt.enumerateFilesystems`, `Cron.getList` and `Apt.enumerateUpgraded` on 2026-11-24; `Cron.getList` only against a NAS with no cron jobs, see 2.9). The Docker family (2.11–2.16: `list_docker_containers`, `list_docker_images`, `list_docker_services`, `list_docker_volumes`, `list_docker_networks` and `list_docker_ports`) are bare working titles, because neither their data source nor whether they should be one tool or several is decided yet — see the open question *Docker tools: data source and shape*.
+> **Ten tools are built and confirmed** against a real OMV 8.5.12 (`get_folder_permissions` and `get_folder_acl` were checked by reading the real answers of `ShareMgmt.getPrivileges` and `ShareMgmt.getFileACL` on 2026-11-23, and `list_users_and_groups`, `list_services`, `list_disks`, `list_filesystems`, `list_scheduled_tasks` and `list_pending_updates` those of `UserMgmt.*`, `Services.getStatus`, `DiskMgmt.enumerateDevices` / `Smart.getList`, `FileSystemMgmt.enumerateFilesystems`, `Cron.getList` and `Apt.enumerateUpgraded` on 2026-11-24; `Cron.getList` only against a NAS with no cron jobs, see 2.9). The Docker family (2.11–2.16) has its source decided: OMV's own `Compose` RPC, whose real answers were read on 2026-11-24 (see the open question *Docker tools: data source and shape*). `list_docker_containers` (2.11) is specified; `list_docker_images`, `list_docker_volumes`, `list_docker_networks` and `list_docker_ports` (2.12, 2.14, 2.15, 2.16) have their source and fields noted and still need their use cases; `list_docker_services` (2.13) was merged into 2.11.
 
 ## 1. Information model
 
@@ -132,6 +132,23 @@ An entry of `list_pending_updates`.
 | `package` | Package name |
 | `current_version` | Installed version. `null` for a package that is new (OMV gives none) |
 | `candidate_version` | Version available |
+
+### Docker container
+
+An entry of `list_docker_containers`: a container of the Docker that OMV's Compose plugin manages. Confirmed against a real OMV 8.5.12 (2026-11-24, nine containers, all running).
+
+| Field | Notes |
+|---|---|
+| `name` | Container name. Always present |
+| `image` | The image as OMV shows it: a name with a tag, and sometimes a digest (`name:tag@sha256:...`). `null` when OMV gives none |
+| `state` | Docker's state as OMV gives it (`running` on every container of the test NAS; Docker also has `exited`, `paused`, `restarting`, `created` and `dead`, not seen yet). `null` when OMV gives none |
+| `status` | Docker's own text, passed on as it is (`Up 4 weeks (healthy)`; for a stopped one, something like `Exited (1) 3 hours ago`). `null` when OMV gives none |
+| `health` | `healthy`, `unhealthy`, `starting` or `null`. Read from `status` only when it **ends** in exactly `(healthy)`, `(unhealthy)` or `(health: starting)`; `null` in every other case (no health check, no `status`, `(Paused)`, `(1)`...). Only `(healthy)` has been seen on the real NAS |
+| `created_at` | When the container was created, as ISO 8601 with its offset (`2026-10-26T12:07:38+01:00`). `null` when OMV gives none or Vault cannot read it |
+| `network` | One text: the network as OMV gives it (`immich_default`, `host`), whatever OMV writes for a container on several (not seen yet; if it turns out to be a list, this field becomes a list, which is a change of contract). `null` when none |
+| `compose_project`, `compose_service` | The Compose project and Compose service the container belongs to (not an OMV service, as in `list_services`). `null` when it was not created by Compose, or when the match is ambiguous (UC-24.AC3) |
+
+Ports, mounts, the command, environment variables and labels are not fields: ports and mounts arrive as HTML text, and the rest can hold secrets. The ports the Compose files publish are read by `list_docker_ports`.
 
 ### Error
 
@@ -527,29 +544,64 @@ Lists the system updates OMV has pending. By default it only says how many; the 
 
 How it works: Vault calls `Apt.enumerateUpgraded` once, which answers with a plain list of the packages APT already knows have an update (the name is misleading: it does not list upgraded packages). Checked against a real OMV 8.5.12 on 2026-11-24 (43 packages pending). **The first draft named `Apt.getUpgradeList`, which does not exist on OMV 8.5.12 (the NAS answers that the method does not exist); `Apt.enumerateUpgraded` replaces it.** `Apt.getUpgradedList` (paged, `{start, limit}`) gives the same packages and is not used. `package` is the entry's `package` (or `name`), `candidate_version` is its `version`, and `current_version` is its `oldversion`, which is **empty for a package that is new** (a new kernel image, for example): Vault reports `null` there instead of an empty text, so `current_version` can be `null`. `count` is the number of entries. Vault does not run `apt update`, so the list is what OMV last found, not necessarily what the repositories offer now. Descriptions, sizes, dependencies and the other APT fields are not passed on. The mapping stays tolerant (a list, or an object with a `data` list); an entry with no name, or an answer that is not a list, is `omv_bad_response` with no partial result (UC-18.AC3).
 
-### 2.11 Tool `list_docker_containers` (working title)
+### 2.11 Tool `list_docker_containers`
 
-Not yet specified, and its data source is not decided either (OMV's own Docker plugin, if any; a socket is very unlikely to be acceptable for a read-only MCP). See the open question *Docker tools: data source and shape*.
+Lists the Docker containers on the NAS, as OMV's Compose plugin sees them, with their state, health and the Compose project each belongs to. It does not say which ports they publish (see 2.16) or what they mount.
 
-### 2.12 Tool `list_docker_images` (working title)
+**Input:** none.
 
-Not yet specified. Would report the Docker images on the NAS and, ideally, whether a newer version of each is available — only real traffic against OMV's Docker plugin (or whatever source is chosen) will say if that is possible without reaching outside the NAS. See the open question *Docker tools: data source and shape*.
+**Output** (`DockerContainersResult`)
 
-### 2.13 Tool `list_docker_services` (working title)
+| Field | Type | Notes |
+|---|---|---|
+| `containers` | list of Docker container | Every container OMV reports, in OMV's order (Vault asks OMV to sort them by name) |
+| `message` | text | Set when `containers` is empty: why, and what to do next |
+| `error` | Error | Empty when the call worked. See section 3 |
 
-Not yet specified. Whether OMV's Docker setup has a concept of "service" distinct from a container (for example Docker Compose services, or Swarm, which a single-host NAS is unlikely to run) is itself unconfirmed. See the open question *Docker tools: data source and shape*.
+#### UC-24 · List the Docker containers
 
-### 2.14 Tool `list_docker_volumes` (working title)
+**Acceptance criteria**
 
-Not yet specified. See the open question *Docker tools: data source and shape*.
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-24.AC1 | Report what OMV says | OMV reports containers | The client calls the tool | Success, and `containers` has one entry per container, in OMV's order, each with its fields. `message` is empty |
+| UC-24.AC2 | A value OMV does not report | A container has no health check, or OMV gives no image, state, status, creation date or network, or the date cannot be read | The client calls the tool | Success, that field is `null` on that entry (and `health` too when there is no `status`), and every other field and entry is reported normally. The call is not an error |
+| UC-24.AC3 | The Compose match | A container has the name of exactly one Compose service, of none, or of more than one | The client calls the tool | With one, its `compose_project` and `compose_service` are that service's. With none (a container that is not from Compose) or more than one (ambiguous), both are `null`. The rest is reported normally. A Compose service with no container is not reported |
+| UC-24.AC4 | Health | `status` ends in `(healthy)`, `(unhealthy)`, `(health: starting)`, or in anything else or nothing | The client calls the tool | `health` is `healthy`, `unhealthy`, `starting`, or `null`, respectively. `(unhealthy)` is never read as `healthy` |
+| UC-24.AC5 | An answer Vault cannot read | The output of either list is not JSON, has no list of entries, or has a container without a name | The client calls the tool | Failed, with `omv_bad_response`, and no partial result: a container left out would look like one that does not exist |
+| UC-24.AC6 | Nothing sensitive is passed on | OMV's answer carries commands, environment variables, labels, mounts or file paths | The client calls the tool | The result has only the fields of the model: none of those is in it |
 
-### 2.15 Tool `list_docker_networks` (working title)
+#### UC-25 · No Docker containers
 
-Not yet specified. See the open question *Docker tools: data source and shape*.
+**Acceptance criteria**
 
-### 2.16 Tool `list_docker_ports` (working title)
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-25.AC1 | None reported | OMV reports no container | The client calls the tool | Success, an empty list, and a `message` that says OMV reported none and that, if some were expected, `list_services` shows whether the Docker service is running. The call is not an error |
 
-Not yet specified. Whether the ports in use are a concept of their own, or just a field already covered by `list_docker_containers` (a container's own port mappings), is itself unconfirmed. See the open question *Docker tools: data source and shape*.
+How it works: Vault starts the background job `Compose.getContainerListBg` and reads its output with `Exec.getOutput` (UC-26), and does the same with `Compose.getServicesListBg`, which lists the Compose services. Both are asked with `{start: 0, limit: -1, sortdir: "asc", sortfield: "name"}` and their output is the text of a JSON `{total, data}`. Checked against a real OMV 8.5.12 on 2026-11-24 (nine containers, nine Compose services, all of Compose). A container is `{id, name, image, execurl, ports, mounts, created, state, status, running, command, network}` and a service `{name, image, project, service, execurl, ports, created, state, status, filepath, envpath, overridepath}`. Vault joins them by `name` (on the test NAS a service's name is its container's name, the only case seen; the cases of UC-24.AC3 are decisions, not observations): `compose_project` is the service's `project` and `compose_service` its `service`. `created_at` is `created` (`2026-10-26 12:07:38 +0100 CET`) read as a date with offset; `running` (`4 weeks ago`) is not passed on. `health` is read as the model says. A failure of either list fails the tool, since a missing join would hide which project a container belongs to. The mapping stays tolerant (a list, or an object with a `data` list; a missing field is `null`).
+
+**Not checked** (it would mean changing the NAS): what OMV answers when Docker is stopped or the Compose plugin is not installed, how a container on several networks appears in `network`, and the states of a container that is not running. Until then such an answer is whatever UC-24.AC4 or UC-02 make of it.
+
+### 2.12 Tool `list_docker_images` (to specify)
+
+Source confirmed, use cases still to write. Would list the Docker images with their update availability. Source: `Compose.getImagesBg`, asked with `{start: 0, limit: -1, sortdir: "asc", sortfield: "repo"}` and read like 2.11. Real answer (2026-11-24, nine images): `{id, ids, ref, repo, createat, createsince, size, tag, digest, status, virtualsize, inuse}`. **`status` is OMV's check for a newer version**: `AVAILABLE` (a newer one exists; four images), `CURRENT` (one), `FAILED` (the check failed; two, with no visible cause) and `NA` (not checked; the two images with no tag, pinned by digest). Proposed output: `update` as `update_available`, `up_to_date` or `unknown` (for `FAILED` and `NA`, said apart in the message so that a failed check is not read as "no update"), `size_bytes`, `in_use`, and the tag and creation date as in 2.11. The meaning of `FAILED` is not confirmed.
+
+### 2.13 `list_docker_services`: merged into 2.11
+
+Decided 2026-11-24: not a tool. OMV's "services" are the Compose services of its Compose plugin (`Compose.getServicesListBg`): on the test NAS, one per container, with a project and a service name. That is already a field of each container (`compose_project`, `compose_service`), so a tool of its own would repeat 2.11. A Compose service that has no container (never created or removed) is therefore not reported by any tool. They are called Compose services to tell them from the OMV services of `list_services`. The file paths the call also reports (`filepath`, `envpath`, `overridepath`) are not passed on. The number 2.13 stays empty so that the others keep theirs.
+
+### 2.14 Tool `list_docker_volumes` (to specify)
+
+Source confirmed, use cases still to write. Source: `Compose.getVolumesBg`, asked with `{start: 0, limit: -1, sortdir: "asc", sortfield: "name"}` and read like 2.11. Real answer (2026-11-24, thirteen volumes): `{name, size, mountpoint, driver, containers}`, with `size` in bytes, `driver` `local` and `containers` a text with the name of the container that uses it, empty when none. **Eleven of the thirteen are anonymous volumes (a 64-character hexadecimal name) that no container uses**, and the other two are used by one container each; the tool would make that visible, with `in_use` and the container. To decide when specified: whether `mountpoint` (a path inside Docker's own directory) is passed on, whether `size` 0 means empty or unknown, and how `containers` looks when several containers share a volume.
+
+### 2.15 Tool `list_docker_networks` (to specify)
+
+Source confirmed, use cases still to write. Source: `Compose.getNetworksBg`, asked with `{start: 0, limit: -1, sortdir: "asc", sortfield: "name"}` and read like 2.11. Real answer (2026-11-24, seven networks, three of them Docker's own: `bridge`, `host` and `none`): `{name, driver, subnet, gateway, parent, mode, containers}`, with `containers` a list of texts such as `immich_server (172.18.0.3)`, or an empty object when the network has none. The mapping must read both.
+
+### 2.16 Tool `list_docker_ports` (to specify)
+
+Decided 2026-11-24: a tool of its own, not a field of 2.11, because 2.11's source gives the ports as HTML and this call gives them as fields, and because it answers a question of its own: which ports the Compose projects publish. Use cases still to write. Source: `Compose.getUsedPortsBg`, asked with `{start: 0, limit: -1, sortdir: "asc", sortfield: "host_port"}` and read like 2.11. Real answer (2026-11-24, eleven ports): `{id, file, service, host_ip, host_port, host_port_label, container_port, protocol}`. **It comes from the Compose files, not from what runs**: it lists what each Compose file declares (Jellyfin, which runs on the host network, appears with the ports its file declares, and Nginx Proxy Manager, which declares none, does not appear), not any port of a container that is not from Compose, and it says nothing about whether the container is up. The spec of the tool must say so.
 
 ## 3. Common behaviour
 
@@ -607,7 +659,27 @@ Vault can only make the calls of section 4, each documented as read-only. The cl
 | UC-07.AC1 | Only the documented calls | Any tool is used | The client calls it | The only calls that reach OMV are the ones in section 4, plus the login |
 | UC-07.AC2 | No tool names an OMV call | | The client reads the arguments every tool accepts | None of them is a service, a method or any other way to choose the OMV call |
 | UC-07.AC3 | Tools say they are read-only | | The client lists the tools | Every tool is annotated as read-only and as not reaching outside systems, and has a title |
-| UC-07.AC4 | The spec and the code agree | A call exposed by the code | The calls of section 4 are compared with those the code exposes | No call is exposed that section 4 does not document, and every call of the confirmed table is exposed. A call of the *not confirmed* table may be exposed once its tool is built |
+| UC-07.AC4 | The spec and the code agree | A call exposed by the code | The calls of section 4 are compared with those the code exposes | No call is exposed that section 4 does not document, and every call of the confirmed table is exposed. A call of a table after the confirmed one (*not confirmed*, or *confirmed but not exposed yet*) may be exposed once its tool is built; when it is, its row moves up to the confirmed table |
+
+#### UC-26 · Read the output of an OMV background job
+
+Some OMV calls (the `Compose` ones, section 4) start a job on the NAS and answer with the name of a temporary file where the job writes its output, which Vault then reads. This is not a tool: it is how every Docker tool gets its data.
+
+**Rules**
+
+1. The output is read with `Exec.getOutput`, which answers `{filename, pos, output, pendingOutput, running}`. Vault asks from position 0, then from the `pos` of the previous answer, every half second at most, and the job is over when `running` and `pendingOutput` are both false.
+2. The only file Vault reads is the one OMV named in the answer to the call that started the job, and only if it matches `/tmp/bgstatus` followed by one or more ASCII letters and digits.
+3. The time limit for OMV (UC-09, rule 2) applies to each job as a whole, from the call that starts it to the last piece. A tool with two jobs runs them one after the other, each with its own limit.
+4. Vault has no call to stop a job or delete its file. A job that is left running or a file left in `/tmp` is accepted, and every call of a tool starts its own jobs, concurrent calls included. Whether OMV deletes the files itself is not checked.
+
+**Acceptance criteria**
+
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-26.AC1 | Read the whole output | A call that starts a background job | A tool uses it | Vault reads the output in pieces as rule 1 says and uses them joined |
+| UC-26.AC2 | Only the file OMV named | The answer to the call that starts the job does not match rule 2 | A tool uses it | Failed, with `omv_bad_response`, and Vault reads nothing: it never reads any other file, and no client can name one |
+| UC-26.AC3 | A job that does not finish | OMV still says the job is running when its time limit ends | A tool uses it | Failed, with `omv_unreachable`, as UC-02.AC1 says |
+| UC-26.AC4 | A job that ends with nothing to read | The job ends and its output is empty | A tool uses it | Failed, with `omv_bad_response`, and no partial result. (An output that is not what the tool expects is the case of that tool's own criterion, for example UC-24.AC5) |
 
 ### 3.3 Starting the server
 
@@ -671,6 +743,18 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 |---|---|---|---|
 | _None at the moment._ | | | |
 
+**Confirmed against the real NAS (OMV 8.5.12, 2026-11-24) but not exposed yet** — the calls of the Docker tools (2.11–2.16), read with real answers; each moves to the confirmed table when the code exposes it. All the `Bg` calls have the same shape: they start a background job on the NAS that runs the Docker command and writes its output to a temporary file, and answer with that file's name (`/tmp/bgstatus...`); `Exec.getOutput` then reads it (UC-26). **That is not a plain `get`**: it starts a process and creates a temporary file on the NAS, so the reason below says so. None of them changes a container, an image, a volume, a network or any OMV configuration. The `Compose` service also has methods that do (`doCommand`, for example) and **none of them may ever be listed**.
+
+| RPC call | Used by | What it does | Why it is read-only |
+|---|---|---|---|
+| `Compose.getContainerListBg` (`params: {start: 0, limit: -1, sortdir: "asc", sortfield: "name"}`) | `list_docker_containers` | Starts the job that lists the containers; its output is `{total, data}` with `{id, name, image, state, status, created, network, ports, mounts, command, ...}` per container | Lists only; starts, stops and changes no container. The job and its temporary file are the only effect on the NAS |
+| `Compose.getServicesListBg` (same `params`) | `list_docker_containers` | Starts the job that lists the Compose services; its output is `{total, data}` with `{name, project, service, state, filepath, envpath, ...}` | As above |
+| `Compose.getImagesBg` (`sortfield: "repo"`) | `list_docker_images` (2.12) | Starts the job that lists the images with OMV's check for a newer version (`status`) | As above. **Not confirmed whether the job checks the registries** (outbound traffic from the NAS) or reads a result OMV already has; the two images with `FAILED` hint at a live check. To settle before the tool is built |
+| `Compose.getVolumesBg` | `list_docker_volumes` (2.14) | Starts the job that lists the volumes: `{name, size, mountpoint, driver, containers}` | As above |
+| `Compose.getNetworksBg` | `list_docker_networks` (2.15) | Starts the job that lists the networks: `{name, driver, subnet, gateway, parent, mode, containers}` | As above |
+| `Compose.getUsedPortsBg` (`sortfield: "host_port"`) | `list_docker_ports` (2.16) | Starts the job that lists the ports the Compose files declare: `{file, service, host_ip, host_port, container_port, protocol}` | As above |
+| `Exec.getOutput` (`params: {filename, pos}`) | every Docker tool | Returns the output of a background job from a position: `{filename, pos, output, pendingOutput, running}` | It reads a file by name, so the name is never free: Vault passes only the one OMV answered to the call it has just made, and only if it is `/tmp/bgstatus` followed by letters and digits (UC-26.AC2). It does not write; whether it deletes the file at the end is not checked |
+
 ## 5. Open questions
 
 | # | Title | Description | Status | Priority | Comments |
@@ -678,4 +762,4 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 | 1 | OMV version | Whether the services Vault calls (`Session`, `System`, `ShareMgmt`) keep the same methods, parameters and answer fields as OMV is updated. | Half-way | High | The real NAS runs OMV 8.5.12-1 (a UGREEN DXP2800, updated regularly), so Vault targets OMV 8.x. Checked against OMV 8.5.1 in a community Docker image (no systemd, no disks, no shared folders): the login answer (`status: "authenticated"`, not `authenticated: true`), the session cookie, HTTP 401 for an invalid session, HTTP 400 for a bad login and the fields of `System.getInformation` are confirmed, and Vault works against it. Also checked against the real 8.5.12-1 with an account in the group `openmediavault-admin`: both tools work and `ShareMgmt.getList` returns `reldirpath` and `comment` as assumed. Left: whether an account outside that group can call these methods (the real test was not done without the group), and how to notice that an OMV update changed an answer. |
 | 2 | Remaining tool catalog | Tool 2.5 (`list_users_and_groups`) is built and confirmed against the real NAS (2026-11-24: OMV's users have `comment`, `groups` and `system` and no "disabled" flag, so the model's `disabled` is gone and `system` splits the result in two blocks). Tool 2.6 (`list_services`) is built and confirmed against the real NAS (2026-11-24: one `Services.getStatus` call answers a plain list of `{name, title, enabled, running}`); tool 2.7 (`list_disks`) is built and confirmed against the real NAS (2026-11-24: `DiskMgmt.enumerateDevices` answers a plain list and `Smart.getList` a `{total, data}` with only the disks that have SMART, each with an `overallstatus`); tool 2.8 (`list_filesystems`) is built and confirmed against the real NAS (2026-11-24: `FileSystemMgmt.enumerateFilesystems` answers a plain list; `used` is human text, not bytes, and an unmounted filesystem has `-1` in its sizes); tool 2.9 (`list_scheduled_tasks`) is built and its call confirmed against the real NAS (2026-11-24: `Cron.getList` needs a `type` list and answers `{total, data}`; the NAS has no cron jobs, so the fields of an entry are still to be checked against a real one, and OMV keeps no last-run data, so the last-run fields were dropped); tool 2.10 (`list_pending_updates`) is built and confirmed against the real NAS (2026-11-24: the guessed `Apt.getUpgradeList` does not exist; `Apt.enumerateUpgraded` answers a plain list of APT package records, 43 on the NAS, with `oldversion` empty for a new package); `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: the entry fields of `list_scheduled_tasks` need a real cron job to be checked. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: confirm each remaining call against the real NAS the way `list_users_and_groups` was (expose the call, read the real answer, fix the models and `FakeOmvServer`). One at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
 | 3 | Credentials secret | How the OMV account reaches the container. Settled: a Docker secret mounted as a file (`secrets/omv_credentials.json`, see `.example.json`), never an environment variable or the repository; and the file is the JSON object `{"username", "password"}` proposed in the technical spec. Still open: who creates and rotates the secret, and the file permissions for the non-root user the container runs as. | Half-way | Medium | Left to settle: who creates and rotates the secret, and the file permissions for the container's user (technical spec, section 4). |
-| 4 | Docker tools: data source and shape | Whether the status of containers, images, services, volumes, networks and ports on the NAS comes from OMV (its Docker plugin, if it has an RPC for it), from the Docker socket or from Portainer. It is probably outside the RPC of OMV, and a socket gives much more access than Vault should have. Also open: whether the six working titles (2.11–2.16) should stay six narrow tools or be merged into fewer broader ones (for example one `list_docker` tool with a block per concept), and whether `list_docker_services` and `list_docker_ports` name a real, separate concept in OMV's Docker or just duplicate what `list_docker_containers` already reports (a container's own ports; Compose/Swarm services a single-host NAS is unlikely to run) — only real traffic against the NAS will tell. | Open | Medium | Decide once there is a real response to read for at least one of these; until then every tool from 2.12 on is a bare title, and 2.11 (`list_docker_containers`) stays one too until the source is picked. |
+| 4 | Docker tools: data source and shape | **Decided (2026-11-24).** Source: only OMV's `Compose` RPC (`Compose.get*Bg` read with `Exec.getOutput`), whose real answers were read for containers, services, images, volumes, networks and used ports. The Docker socket and Portainer stay out of Vault: a socket gives root-equivalent access and Portainer is another system with its own credentials; the user may want them later as a separate MCP. Shape: one tool per concept, not one with a block each; 2.13 (`list_docker_services`) is merged into 2.11 (a Compose service is a field of its container), and 2.16 (`list_docker_ports`) stays its own tool. 2.11 is specified (UC-24, UC-25, and UC-26 for the background jobs). **Still open:** what OMV answers when Docker is stopped or the Compose plugin is missing; how a container on several networks, a stopped container and a volume shared by several containers look; what an image `status` of `FAILED` means; the use cases of 2.12, 2.14, 2.15 and 2.16; and whether an account outside `openmediavault-admin` can start these jobs (see *OMV version*). | Half-way | Medium | Next: build 2.11 (expose its three calls, a reader of background jobs that follows UC-26, the models and the fake of OMV), then specify and build the others one at a time, as with the first ten. The socket and Portainer as a separate MCP are not decided: to be talked about later. |
