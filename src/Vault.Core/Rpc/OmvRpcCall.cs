@@ -59,8 +59,20 @@ public sealed class OmvRpcCall
     /// <summary>The packages with an update available. Used by <c>list_pending_updates</c>. Checked against OMV 8.5.12 (the name is misleading: it does not list upgraded packages).</summary>
     public static readonly OmvRpcCall PendingUpdates = new("Apt", "enumerateUpgraded");
 
+    /// <summary>The Docker containers, as a background job (the answer is the name of the file with its output). Used by <c>list_docker_containers</c>. Checked against OMV 8.5.12.</summary>
+    public static readonly OmvRpcCall DockerContainers = new("Compose", "getContainerListBg");
+
+    /// <summary>The Compose services, as a background job. Used by <c>list_docker_containers</c>. Checked against OMV 8.5.12.</summary>
+    public static readonly OmvRpcCall ComposeServices = new("Compose", "getServicesListBg");
+
+    /// <summary>
+    /// The output of a background job, from a position. <c>internal</c> on purpose, like <see cref="Login"/>: it reads a file by name, so only
+    /// <c>BackgroundJobReader</c> may use it, with the name OMV answered and only if it looks like <c>/tmp/bgstatus...</c> (UC-26).
+    /// </summary>
+    internal static readonly OmvRpcCall BackgroundOutput = new("Exec", "getOutput");
+
     /// <summary>Every call a tool can make, in a fixed order. <see cref="Login"/> is not here.</summary>
-    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems, ScheduledTasks, PendingUpdates];
+    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems, ScheduledTasks, PendingUpdates, DockerContainers, ComposeServices, BackgroundOutput];
 
     public override string ToString() => Name;
 }

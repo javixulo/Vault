@@ -12,6 +12,7 @@ using Vault.Core;
 using Vault.Core.Disks;
 using Vault.Core.Filesystems;
 using Vault.Core.ScheduledTasks;
+using Vault.Core.Docker;
 using Vault.Core.Rpc;
 using Vault.Core.Services;
 using Vault.Core.Shares;
@@ -76,6 +77,8 @@ builder.Services.AddSingleton<DisksReader>();
 builder.Services.AddSingleton<FilesystemsReader>();
 builder.Services.AddSingleton<ScheduledTasksReader>();
 builder.Services.AddSingleton<PendingUpdatesReader>();
+builder.Services.AddSingleton(sp => new BackgroundJobReader(sp.GetRequiredService<IOmvRpcClient>(), TimeSpan.FromSeconds(sp.GetRequiredService<VaultOptions>().TimeoutSeconds)));
+builder.Services.AddSingleton<DockerContainersReader>();
 
 // The contract uses snake_case (technical spec, section 6). Outcomes are plain results, never protocol errors.
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -98,7 +101,8 @@ builder.Services
     .WithTools<ListDisksTool>(json)
     .WithTools<ListFilesystemsTool>(json)
     .WithTools<ListScheduledTasksTool>(json)
-    .WithTools<ListPendingUpdatesTool>(json);
+    .WithTools<ListPendingUpdatesTool>(json)
+    .WithTools<ListDockerContainersTool>(json);
 
 var app = builder.Build();
 

@@ -31,7 +31,7 @@ public sealed class SystemTests
 
         var acl = await vault.Client.CallToolAsync("get_folder_acl", new Dictionary<string, object?> { ["folder"] = "media" }, cancellationToken: Token);
 
-        Assert.Equal(["system_status", "list_shared_folders", "get_folder_permissions", "get_folder_acl", "list_users_and_groups", "list_services", "list_disks", "list_filesystems", "list_scheduled_tasks", "list_pending_updates"], tools.Select(t => t.Name));
+        Assert.Equal(["system_status", "list_shared_folders", "get_folder_permissions", "get_folder_acl", "list_users_and_groups", "list_services", "list_disks", "list_filesystems", "list_scheduled_tasks", "list_pending_updates", "list_docker_containers"], tools.Select(t => t.Name));
         Assert.NotEqual(true, acl.IsError);
         Assert.Equal(2, acl.StructuredContent!.Value.GetProperty("entries").GetArrayLength());
         Assert.NotEqual(true, permissions.IsError);

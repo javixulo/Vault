@@ -15,6 +15,13 @@ internal sealed class StubOmv : IOmvRpcClient
 {
     public List<string> Calls { get; } = [];
 
+    /// <summary>The output of each background job by file name; the start calls answer the name, and Exec.getOutput answers the whole output.</summary>
+    public Dictionary<string, string> JobOutputs { get; } = new()
+    {
+        ["/tmp/bgstatusCONT"] = """{"total":2,"data":[{"name":"jellyfin","image":"lscr.io/linuxserver/jellyfin:latest","ports":"","mounts":"/srv/media","created":"2026-10-26 12:08:00 +0100 CET","state":"running","status":"Up 4 weeks (healthy)","command":"s6","network":"host"},{"name":"standalone","image":"busybox","state":"exited","status":"Exited (1) 3 hours ago"}]}""",
+        ["/tmp/bgstatusSERV"] = """{"total":1,"data":[{"name":"jellyfin","project":"jellyfin","service":"jellyfin","filepath":"/Docker_Compose/Jellyfin/Jellyfin.yml"}]}""",
+    };
+
     public Func<OmvRpcCall, JsonElement> Answer { get; set; } = call =>
         call == OmvRpcCall.SystemInformation
             ? Parse("""{"hostname":"nas","version":"7.4.0","kernel":"Linux 6.1","cpuModelName":"N100","cpuUtilization":3.5,"memTotal":8000,"memUsed":2000,"uptime":3600}""")
@@ -24,6 +31,10 @@ internal sealed class StubOmv : IOmvRpcClient
                 ? Parse("""[{"canonicaldevicefile":"/dev/sda1","uuid":"u1","type":"ext4","label":"","mounted":true,"mountpoint":"/srv/data","used":"1.00 KiB","size":"1000","available":"900","percentage":10},{"canonicaldevicefile":"/dev/sdb1","uuid":"u2","type":"ext4","label":"DATA","mounted":false,"mountpoint":"","used":"-1","size":"-1"}]""")
             : call == OmvRpcCall.ScheduledTasks
                 ? Parse("""{"total":2,"data":[{"comment":"Nightly backup","command":"/usr/local/bin/backup.sh","enable":true,"execution":"exactly","minute":"0","everynminute":false,"hour":"3","everynhour":false,"dayofmonth":"*","everyndayofmonth":false,"month":"*","dayofweek":"*"},{"comment":"","command":"/usr/bin/cleanup","enable":false,"execution":"daily"}]}""")
+            : call == OmvRpcCall.DockerContainers
+                ? Parse("\"/tmp/bgstatusCONT\"")
+            : call == OmvRpcCall.ComposeServices
+                ? Parse("\"/tmp/bgstatusSERV\"")
             : call == OmvRpcCall.PendingUpdates
                 ? Parse("""[{"name":"curl","package":"curl","version":"7.1","oldversion":"7.0"},{"name":"linux-image","package":"linux-image","version":"6.1","oldversion":""}]""")
             : call == OmvRpcCall.DisksSmart
@@ -45,6 +56,12 @@ internal sealed class StubOmv : IOmvRpcClient
         lock (Calls)
         {
             Calls.Add(rpcCall.Name);
+        }
+
+        if (rpcCall.Name == "Exec.getOutput")
+        {
+            var output = JobOutputs[JsonSerializer.SerializeToElement(parameters).GetProperty("filename").GetString()!];
+            return Task.FromResult(Parse(JsonSerializer.Serialize(new { filename = "x", pos = output.Length, output, pendingOutput = false, running = false })));
         }
 
         return Task.FromResult(Answer(rpcCall));

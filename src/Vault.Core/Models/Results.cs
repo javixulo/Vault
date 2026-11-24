@@ -259,6 +259,39 @@ public sealed record PendingUpdatesResult(
     public static PendingUpdatesResult Failure(VaultError error) => new(0, [], null, error);
 }
 
+/// <summary>
+/// A Docker container as OMV's Compose plugin reports it (functional spec, section 1). <c>Health</c> is <c>healthy</c>, <c>unhealthy</c>,
+/// <c>starting</c> or null; <c>CreatedAt</c> is null when OMV gives none or it cannot be read; the Compose fields are null when the
+/// container is not from Compose or the match is ambiguous.
+/// </summary>
+public sealed record DockerContainer(
+    string Name,
+    string? Image,
+    string? State,
+    string? Status,
+    string? Health,
+    DateTimeOffset? CreatedAt,
+    string? Network,
+    string? ComposeProject,
+    string? ComposeService);
+
+/// <summary>Outcome of <c>list_docker_containers</c>. <c>Message</c> is set when there are no containers.</summary>
+public sealed record DockerContainersResult(
+    IReadOnlyList<DockerContainer> Containers,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static DockerContainersResult Found(IReadOnlyList<DockerContainer> containers) => new(containers);
+
+    public static DockerContainersResult Empty(string message) => new([], message);
+
+    public static DockerContainersResult Failure(VaultError error) => new([], null, error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";

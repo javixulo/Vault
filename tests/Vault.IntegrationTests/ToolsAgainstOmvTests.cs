@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Vault.Core.Docker;
+using Vault.Core.Rpc;
 using Vault.Core.Shares;
 using Vault.Core.SystemInfo;
 using Xunit;
@@ -118,6 +120,25 @@ public sealed class ToolsAgainstOmvTests
         Assert.Equal("omv_auth_failed", result.Error!.Code);
         Assert.Contains("does not allow it this call", result.Error.Message, StringComparison.Ordinal);
         Assert.Equal(1, env.Server.Calls.Count(c => c == "Session.login"));
+    }
+
+    [Fact]
+    [Trait("Criteria", "UC-24.AC1, UC-24.AC3, UC-26.AC1, UC-07.AC1")]
+    public async Task Docker_containers_are_read_through_the_background_jobs_and_only_the_documented_calls_reach_OMV()
+    {
+        await using var env = await OmvTestEnvironment.StartAsync();
+        var reader = new DockerContainersReader(new BackgroundJobReader(env.Client, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(10)), NullLogger<DockerContainersReader>.Instance);
+
+        var result = await reader.ReadAsync(Token);
+
+        Assert.True(result.Ok);
+        Assert.Equal(["jellyfin", "standalone"], result.Containers.Select(c => c.Name));
+        Assert.Equal("healthy", result.Containers[0].Health);
+        Assert.Equal("jellyfin", result.Containers[0].ComposeProject);
+        Assert.Null(result.Containers[1].ComposeProject);
+        Assert.Equal(
+            ["Session.login", "Compose.getContainerListBg", "Exec.getOutput", "Compose.getServicesListBg", "Exec.getOutput"],
+            env.Server.Calls);
     }
 
     [Fact]

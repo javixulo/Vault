@@ -60,6 +60,10 @@ public static class Messages
         "OpenMediaVault has no pending updates: the system is up to date as far as OMV knows. Nothing is wrong with the call; tell the user nothing needs updating. " +
         "This is what OMV last found; Vault does not run apt update.";
 
+    public const string NoDockerContainers =
+        "OpenMediaVault reports no Docker containers. Nothing is wrong with the call; tell the user OMV listed none. " +
+        "If some were expected, list_services shows whether the Docker service is running.";
+
     public const string NoScheduledTasks =
         "OpenMediaVault has no scheduled tasks (cron jobs). Nothing is wrong with the call; tell the user OMV has none configured.";
 

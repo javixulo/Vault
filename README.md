@@ -4,7 +4,7 @@
 
 Vault is a small, **read-only** [MCP](https://modelcontextprotocol.io) server that wraps the JSON-RPC API of [OpenMediaVault](https://www.openmediavault.org) (OMV). It plugs into your AI assistant and lets it look at the real state of the NAS (system, shared folders and, as the catalog grows, permissions, services, disks, users and backups) instead of trusting documentation that may be out of date.
 
-> **Status: skeleton.** Ten tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`, `list_services`, `list_disks`, `list_filesystems`, `list_scheduled_tasks` and `list_pending_updates` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); other OMV versions are untested.
+> **Status: skeleton.** Eleven tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`, `list_services`, `list_disks`, `list_filesystems`, `list_scheduled_tasks`, `list_pending_updates` and `list_docker_containers` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); other OMV versions are untested.
 
 ## Tools
 
@@ -22,6 +22,7 @@ Every tool is **read-only**: none changes anything on the NAS.
 | `list_filesystems` | The filesystems OMV manages, mounted or not: device, uuid, type, label, mount point, size, used space (as text), free space and used percentage. Built on `FileSystemMgmt.enumerateFilesystems` | "How full is each data disk?" |
 | `list_scheduled_tasks` | The cron jobs OMV has configured: name (comment or command), schedule (a cron expression or `@daily`...) and whether it is enabled. OMV keeps no last-run data, so it does not say whether a job ran. Built on `Cron.getList` | "Is the nightly backup job still enabled?" |
 | `list_pending_updates` | How many system updates are pending; with `detailed: true`, each package with its installed and candidate version. Reads what OMV already knows, it never runs `apt update` or installs anything. Built on `Apt.enumerateUpgraded` | "Does the NAS need updates?" |
+| `list_docker_containers` | The Docker containers: name, image, state, status, health (`healthy`, `unhealthy`, `starting` or null), creation date, network and the Compose project and service. No ports, mounts, commands or environment variables. Built on `Compose.getContainerListBg`, `Compose.getServicesListBg` and `Exec.getOutput` (OMV runs each as a short background job and Vault reads its output) | "Are my containers up and healthy?" |
 
 ## Read-only by construction
 

@@ -13,7 +13,7 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>Cron.getList</c>, <c>Apt.enumerateUpgraded</c>, <c>DiskMgmt.enumerateDevices</c>, <c>Smart.getList</c> and <c>FileSystemMgmt.enumerateFilesystems</c>, and it
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>Cron.getList</c>, <c>Apt.enumerateUpgraded</c>, <c>Compose.getContainerListBg</c>, <c>Compose.getServicesListBg</c>, <c>Exec.getOutput</c>, <c>DiskMgmt.enumerateDevices</c>, <c>Smart.getList</c> and <c>FileSystemMgmt.enumerateFilesystems</c>, and it
 /// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
 /// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
@@ -204,6 +204,11 @@ public sealed class FakeOmvServer : IAsyncDisposable
                     new { uuid = "u2", enable = false, execution = "daily", username = "root", command = "/usr/bin/cleanup", comment = "", type = "userdefined" },
                 },
             }),
+            // Compose jobs, checked against a real OMV 8.5.12 (2026-11-24): the call answers the name of a temporary file and
+            // Exec.getOutput answers it whole: {filename, pos, output, pendingOutput, running}, where output is the text of a JSON {total, data}.
+            ("Compose", "getContainerListBg") => Ok("/tmp/bgstatusFakeCONT"),
+            ("Compose", "getServicesListBg") => Ok("/tmp/bgstatusFakeSERV"),
+            ("Exec", "getOutput") => JobOutput(parameters),
             ("Smart", "getList") => Ok(new
             {
                 total = 1,
@@ -211,6 +216,20 @@ public sealed class FakeOmvServer : IAsyncDisposable
             }),
             _ => Error(1, $"Unknown method {service}.{method}."),
         };
+    }
+
+    private static IResult JobOutput(JsonElement parameters)
+    {
+        var file = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("filename", out var f) ? f.GetString() : null;
+        var output = file switch
+        {
+            "/tmp/bgstatusFakeCONT" => """{"total":2,"data":[{"id":"aa7f","name":"jellyfin","image":"lscr.io/linuxserver/jellyfin:latest","execurl":"disabled","ports":"","mounts":"/srv/media","created":"2026-10-26 12:08:00 +0100 CET","state":"running","status":"Up 4 weeks (healthy)","running":"4 weeks ago","command":"/init","network":"host"},{"id":"bb01","name":"standalone","image":"busybox","state":"exited","status":"Exited (1) 3 hours ago"}]}""",
+            "/tmp/bgstatusFakeSERV" => """{"total":1,"data":[{"name":"jellyfin","image":"lscr.io/linuxserver/jellyfin:latest","project":"jellyfin","service":"jellyfin","filepath":"/Docker_Compose/Jellyfin/Jellyfin.yml","envpath":"","overridepath":""}]}""",
+            _ => null,
+        };
+        return output is null
+            ? Error(1, "No such file.")
+            : Ok(new { filename = file, pos = output.Length, output, pendingOutput = false, running = false });
     }
 
     private IResult Login(HttpContext context, JsonElement parameters)
