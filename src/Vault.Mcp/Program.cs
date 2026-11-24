@@ -11,6 +11,7 @@ using OpenTelemetry.Trace;
 using Vault.Core;
 using Vault.Core.Disks;
 using Vault.Core.Filesystems;
+using Vault.Core.ScheduledTasks;
 using Vault.Core.Rpc;
 using Vault.Core.Services;
 using Vault.Core.Shares;
@@ -72,6 +73,7 @@ builder.Services.AddSingleton<UsersAndGroupsReader>();
 builder.Services.AddSingleton<ServicesReader>();
 builder.Services.AddSingleton<DisksReader>();
 builder.Services.AddSingleton<FilesystemsReader>();
+builder.Services.AddSingleton<ScheduledTasksReader>();
 
 // The contract uses snake_case (technical spec, section 6). Outcomes are plain results, never protocol errors.
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -92,7 +94,8 @@ builder.Services
     .WithTools<ListUsersAndGroupsTool>(json)
     .WithTools<ListServicesTool>(json)
     .WithTools<ListDisksTool>(json)
-    .WithTools<ListFilesystemsTool>(json);
+    .WithTools<ListFilesystemsTool>(json)
+    .WithTools<ListScheduledTasksTool>(json);
 
 var app = builder.Build();
 

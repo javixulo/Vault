@@ -53,8 +53,11 @@ public sealed class OmvRpcCall
     /// <summary>The filesystems OMV manages, mounted or not. Used by <c>list_filesystems</c>. Checked against OMV 8.5.12.</summary>
     public static readonly OmvRpcCall Filesystems = new("FileSystemMgmt", "enumerateFilesystems");
 
+    /// <summary>The cron jobs OMV has configured. Used by <c>list_scheduled_tasks</c>. Checked against OMV 8.5.12 (a NAS with no jobs).</summary>
+    public static readonly OmvRpcCall ScheduledTasks = new("Cron", "getList");
+
     /// <summary>Every call a tool can make, in a fixed order. <see cref="Login"/> is not here.</summary>
-    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems];
+    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems, ScheduledTasks];
 
     public override string ToString() => Name;
 }

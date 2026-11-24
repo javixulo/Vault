@@ -209,6 +209,29 @@ public sealed record FilesystemsResult(
     public static FilesystemsResult Failure(VaultError error) => new([], null, error);
 }
 
+/// <summary>
+/// A cron job OMV has configured. <c>Name</c> is its comment, or its command when it has none; <c>Schedule</c> is the cron
+/// expression (<c>"*/5 * * * *"</c>, or <c>"@daily"</c>) and is null when Vault cannot build it. OMV does not record when a job last ran.
+/// </summary>
+public sealed record ScheduledTask(string Name, string? Schedule, bool? Enabled);
+
+/// <summary>Outcome of <c>list_scheduled_tasks</c>. <c>Message</c> is set when there is nothing to return.</summary>
+public sealed record ScheduledTasksResult(
+    IReadOnlyList<ScheduledTask> Tasks,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static ScheduledTasksResult Found(IReadOnlyList<ScheduledTask> tasks) => new(tasks);
+
+    public static ScheduledTasksResult Empty(string message) => new([], message);
+
+    public static ScheduledTasksResult Failure(VaultError error) => new([], null, error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";

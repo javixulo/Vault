@@ -27,7 +27,7 @@ public sealed class ToolAnnotationsContractTests : IAsyncLifetime
     {
         var names = (await _server.ToolsAsync()).Select(t => t.Name).ToList();
 
-        Assert.Equal(["system_status", "list_shared_folders", "get_folder_permissions", "get_folder_acl", "list_users_and_groups", "list_services", "list_disks", "list_filesystems"], names);
+        Assert.Equal(["system_status", "list_shared_folders", "get_folder_permissions", "get_folder_acl", "list_users_and_groups", "list_services", "list_disks", "list_filesystems", "list_scheduled_tasks"], names);
     }
 
     // Catches: a tool that is not marked read-only (the reason Vault exists), or has no title, or reaches outside systems.
@@ -60,6 +60,7 @@ public sealed class ToolAnnotationsContractTests : IAsyncLifetime
             ["list_services"] = [],
             ["list_disks"] = [],
             ["list_filesystems"] = [],
+            ["list_scheduled_tasks"] = [],
         };
 
         foreach (var tool in await _server.ToolsAsync())
