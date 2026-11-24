@@ -33,9 +33,9 @@ public sealed partial class SpecAllowlistTests
             section = section[..next.Index];
         }
 
-        // The section has a "Confirmed" table and then the tables of calls not confirmed against a real answer yet (first the
-        // ones whose request was seen in OMV's own traffic, then the plain guesses); those list calls of tools not built yet.
-        var split = section.IndexOf("Request seen in the real OMV's own network traffic", StringComparison.Ordinal);
+        // The section has a "Confirmed" table and then the table of calls not confirmed against a real answer yet (plain
+        // guesses); those list calls of tools not built yet.
+        var split = section.IndexOf("Not confirmed at all yet", StringComparison.Ordinal);
         Assert.True(split > 0, "The RPC calls section no longer separates the confirmed calls from the ones not confirmed yet.");
         string[] Rows(string text) => [.. RpcRow().Matches(text).Select(m => m.Groups["name"].Value).Where(n => n != "Session.login")];
         var confirmed = Rows(section[..split]);

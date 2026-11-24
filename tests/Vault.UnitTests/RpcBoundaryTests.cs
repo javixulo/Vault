@@ -10,7 +10,7 @@ public sealed class RpcBoundaryTests
     [Trait("Criteria", "UC-07.AC1")]
     public void The_exposed_calls_are_exactly_the_documented_ones_and_login_is_not_among_them()
     {
-        Assert.Equal(["System.getInformation", "ShareMgmt.getList", "ShareMgmt.getPrivileges", "ShareMgmt.getFileACL"], OmvRpcCall.Exposed.Select(c => c.Name));
+        Assert.Equal(["System.getInformation", "ShareMgmt.getList", "ShareMgmt.getPrivileges", "ShareMgmt.getFileACL", "UserMgmt.enumerateAllUsers", "UserMgmt.enumerateAllGroups"], OmvRpcCall.Exposed.Select(c => c.Name));
     }
 
     [Fact]

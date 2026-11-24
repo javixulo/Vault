@@ -105,6 +105,27 @@ public sealed record FolderAclResult(
     public static FolderAclResult Failure(string folder, VaultError error) => new(folder, null, null, null, null, null, [], null, error);
 }
 
+/// <summary>An OMV user. <c>System</c> is true for the accounts of the operating system (<c>root</c>, <c>sshd</c>...). <c>FullName</c> and <c>System</c> are null when OMV does not report them.</summary>
+public sealed record OmvUser(string Username, string? FullName, bool? System, IReadOnlyList<string> Groups);
+
+/// <summary>An OMV group and the usernames of its members. <c>System</c> is true for the groups of the operating system.</summary>
+public sealed record OmvGroup(string Name, bool? System, IReadOnlyList<string> Members);
+
+/// <summary>Outcome of <c>list_users_and_groups</c>.</summary>
+public sealed record UsersAndGroupsResult(
+    IReadOnlyList<OmvUser> Users,
+    IReadOnlyList<OmvGroup> Groups,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static UsersAndGroupsResult Found(IReadOnlyList<OmvUser> users, IReadOnlyList<OmvGroup> groups) => new(users, groups);
+
+    public static UsersAndGroupsResult Failure(VaultError error) => new([], [], error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";
