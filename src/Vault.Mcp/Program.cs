@@ -15,6 +15,7 @@ using Vault.Core.ScheduledTasks;
 using Vault.Core.Rpc;
 using Vault.Core.Services;
 using Vault.Core.Shares;
+using Vault.Core.Updates;
 using Vault.Core.SystemInfo;
 using Vault.Core.Users;
 using Vault.Mcp;
@@ -74,6 +75,7 @@ builder.Services.AddSingleton<ServicesReader>();
 builder.Services.AddSingleton<DisksReader>();
 builder.Services.AddSingleton<FilesystemsReader>();
 builder.Services.AddSingleton<ScheduledTasksReader>();
+builder.Services.AddSingleton<PendingUpdatesReader>();
 
 // The contract uses snake_case (technical spec, section 6). Outcomes are plain results, never protocol errors.
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -95,7 +97,8 @@ builder.Services
     .WithTools<ListServicesTool>(json)
     .WithTools<ListDisksTool>(json)
     .WithTools<ListFilesystemsTool>(json)
-    .WithTools<ListScheduledTasksTool>(json);
+    .WithTools<ListScheduledTasksTool>(json)
+    .WithTools<ListPendingUpdatesTool>(json);
 
 var app = builder.Build();
 

@@ -13,7 +13,7 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>Cron.getList</c>, <c>DiskMgmt.enumerateDevices</c>, <c>Smart.getList</c> and <c>FileSystemMgmt.enumerateFilesystems</c>, and it
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>Cron.getList</c>, <c>Apt.enumerateUpgraded</c>, <c>DiskMgmt.enumerateDevices</c>, <c>Smart.getList</c> and <c>FileSystemMgmt.enumerateFilesystems</c>, and it
 /// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
 /// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
@@ -186,6 +186,12 @@ public sealed class FakeOmvServer : IAsyncDisposable
             {
                 new { devicename = "sda1", canonicaldevicefile = "/dev/sda1", uuid = "b1c995cf-ac11-418f-8d73-54fed3bc2ec2", label = "", type = "ext4", mounted = true, mountpoint = "/srv/dev-disk-by-uuid-b1c995cf", used = "532.59 GiB", available = "3364930629632", size = "3936819658752" },
                 new { devicename = "mmcblk0p7", canonicaldevicefile = "/dev/mmcblk0p7", uuid = "db287638-4c71-42d2-a5c7-fe942847592e", label = "USER-DATA", type = "ext4", mounted = false, mountpoint = "", used = "-1", available = "-1", size = "-1" },
+            }),
+            // Apt.enumerateUpgraded answers a plain list of APT records; oldversion is empty for a new package (real OMV 8.5.12).
+            ("Apt", "enumerateUpgraded") => Ok(new object[]
+            {
+                new { name = "curl", package = "curl", version = "7.1", oldversion = "7.0", size = 1000 },
+                new { name = "linux-image", package = "linux-image", version = "6.1", oldversion = "" },
             }),
             // Cron.getList needs a type list and answers {total, data}; checked against a real OMV 8.5.12, which has no jobs
             // (the entry fields are OMV's documented ones, not yet seen in a real answer).

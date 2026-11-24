@@ -232,6 +232,33 @@ public sealed record ScheduledTasksResult(
     public static ScheduledTasksResult Failure(VaultError error) => new([], null, error);
 }
 
+/// <summary>
+/// A package with an update available. <c>CurrentVersion</c> is the installed version, null for a package that is new (OMV gives none);
+/// <c>CandidateVersion</c> is the one available.
+/// </summary>
+public sealed record PendingUpdate(string Package, string? CurrentVersion, string? CandidateVersion);
+
+/// <summary>
+/// Outcome of <c>list_pending_updates</c>. <c>Count</c> is always reported; <c>Updates</c> only when the client asked for the detail.
+/// <c>Message</c> is set when nothing is pending.
+/// </summary>
+public sealed record PendingUpdatesResult(
+    int Count,
+    IReadOnlyList<PendingUpdate> Updates,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static PendingUpdatesResult Found(int count, IReadOnlyList<PendingUpdate> updates) => new(count, updates);
+
+    public static PendingUpdatesResult UpToDate(string message) => new(0, [], message);
+
+    public static PendingUpdatesResult Failure(VaultError error) => new(0, [], null, error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";

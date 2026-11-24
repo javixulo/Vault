@@ -22,6 +22,7 @@ public static class Telemetry
     public const string DisksCount = "disks.count";
     public const string FilesystemsCount = "filesystems.count";
     public const string ScheduledTasksCount = "scheduled_tasks.count";
+    public const string PendingUpdatesCount = "pending_updates.count";
     public const string ErrorType = "error.type";
 
     public static readonly ActivitySource Source = new(SourceName);

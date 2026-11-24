@@ -56,6 +56,10 @@ public static class Messages
     public const string NoFilesystems =
         "OpenMediaVault reports no filesystems. Nothing is wrong with the call; tell the user OMV listed none.";
 
+    public const string NoPendingUpdates =
+        "OpenMediaVault has no pending updates: the system is up to date as far as OMV knows. Nothing is wrong with the call; tell the user nothing needs updating. " +
+        "This is what OMV last found; Vault does not run apt update.";
+
     public const string NoScheduledTasks =
         "OpenMediaVault has no scheduled tasks (cron jobs). Nothing is wrong with the call; tell the user OMV has none configured.";
 

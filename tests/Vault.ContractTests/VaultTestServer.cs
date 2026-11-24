@@ -24,6 +24,8 @@ internal sealed class StubOmv : IOmvRpcClient
                 ? Parse("""[{"canonicaldevicefile":"/dev/sda1","uuid":"u1","type":"ext4","label":"","mounted":true,"mountpoint":"/srv/data","used":"1.00 KiB","size":"1000","available":"900","percentage":10},{"canonicaldevicefile":"/dev/sdb1","uuid":"u2","type":"ext4","label":"DATA","mounted":false,"mountpoint":"","used":"-1","size":"-1"}]""")
             : call == OmvRpcCall.ScheduledTasks
                 ? Parse("""{"total":2,"data":[{"comment":"Nightly backup","command":"/usr/local/bin/backup.sh","enable":true,"execution":"exactly","minute":"0","everynminute":false,"hour":"3","everynhour":false,"dayofmonth":"*","everyndayofmonth":false,"month":"*","dayofweek":"*"},{"comment":"","command":"/usr/bin/cleanup","enable":false,"execution":"daily"}]}""")
+            : call == OmvRpcCall.PendingUpdates
+                ? Parse("""[{"name":"curl","package":"curl","version":"7.1","oldversion":"7.0"},{"name":"linux-image","package":"linux-image","version":"6.1","oldversion":""}]""")
             : call == OmvRpcCall.DisksSmart
                 ? Parse("""{"total":1,"data":[{"canonicaldevicefile":"/dev/sda","overallstatus":"GOOD"}]}""")
             : call == OmvRpcCall.ServicesStatus

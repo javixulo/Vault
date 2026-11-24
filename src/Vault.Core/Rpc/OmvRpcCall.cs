@@ -56,8 +56,11 @@ public sealed class OmvRpcCall
     /// <summary>The cron jobs OMV has configured. Used by <c>list_scheduled_tasks</c>. Checked against OMV 8.5.12 (a NAS with no jobs).</summary>
     public static readonly OmvRpcCall ScheduledTasks = new("Cron", "getList");
 
+    /// <summary>The packages with an update available. Used by <c>list_pending_updates</c>. Checked against OMV 8.5.12 (the name is misleading: it does not list upgraded packages).</summary>
+    public static readonly OmvRpcCall PendingUpdates = new("Apt", "enumerateUpgraded");
+
     /// <summary>Every call a tool can make, in a fixed order. <see cref="Login"/> is not here.</summary>
-    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems, ScheduledTasks];
+    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems, ScheduledTasks, PendingUpdates];
 
     public override string ToString() => Name;
 }
