@@ -4,7 +4,9 @@
 
 Vault is a small, **read-only** [MCP](https://modelcontextprotocol.io) server that wraps the JSON-RPC API of [OpenMediaVault](https://www.openmediavault.org) (OMV). It plugs into your AI assistant and lets it look at the real state of the NAS (system, shared folders and, as the catalog grows, permissions, services, disks, users and backups) instead of trusting documentation that may be out of date.
 
-> **Status: skeleton.** Eleven tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`, `list_services`, `list_disks`, `list_filesystems`, `list_scheduled_tasks`, `list_pending_updates` and `list_docker_containers` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); Vault stays strictly read-only and keeps only this one Docker tool, because the other Docker tools (images, volumes, networks, ports, and later managing containers) are planned as a separate MCP over the Docker socket; other OMV versions are untested.
+**It runs as a container on the very NAS it watches.** Vault is a single small Docker image, so you do not need another machine: add it as a stack in OMV's own Compose plugin, paste the compose file and the environment file from [Run with Docker](#run-with-docker), and start it. It then talks to the OMV on the same box over your local network. Nothing is installed on OMV itself and nothing changes on it: remove the stack and it is gone. (Give it the NAS's address on your network, for example `http://192.168.1.7:8080`, not `localhost`: inside a container, `localhost` is the container itself.)
+
+> **Status: beta.** Eleven tools are built and have been run against a real NAS with OMV 8.5.12: `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`, `list_services`, `list_disks`, `list_filesystems`, `list_scheduled_tasks`, `list_pending_updates` and `list_docker_containers`. Other OMV versions are untested. The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)). Vault stays strictly read-only and keeps only this one Docker tool: the other Docker tools (images, volumes, networks, ports, and later managing containers) are planned as a separate MCP over the Docker socket.
 
 ## Tools
 
@@ -43,7 +45,7 @@ Vault is written in **C# / .NET 10**.
 ## Requirements
 
 - Docker with Compose 2.23 or later (to run the published image), or the .NET SDK 10 (see `global.json`) to build and run it from source.
-- An OMV (its web interface address) and an account for Vault.
+- OpenMediaVault 8.x (tested on 8.5.12), its web interface address, and an account for Vault.
 
 ## Set up the OMV account
 
@@ -102,10 +104,9 @@ Give the variables a value in a `.env` next to the file (copy `.env.template`), 
 | `VAULT_PORT` | `7842` | Optional (default 7842). Port Vault listens on, on this machine |
 | `TZ` | `Europe/Madrid` | Optional. Timezone |
 | `VAULT_UID`, `VAULT_GID`, `VAULT_ALLOW_INVALID_CERTIFICATE` | `1000`, `1000`, `false` | Optional, only in the repository's compose file (see `.env.template`) |
-| `VAULT_OMV_URL` | `https://nas.local` | **Required.** Address of the OMV web interface |
+| `VAULT_OMV_URL` | `https://nas.local` | **Required.** Address of the OMV web interface, as the container sees it: use the NAS's address on your network (`http://192.168.1.7:8080`), never `localhost` |
 | `VAULT_OMV_USERNAME` | `vault-mcp` | **Required.** The OMV account of [the previous section](#set-up-the-omv-account) |
 | `VAULT_OMV_PASSWORD` | `a-long-unique-password` | **Required.** Its password. In a `.env` file, put it in single quotes if it has `$` or `#` |
-
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://seq:5341/ingest/otlp` | Optional. Where to send logs and traces; empty sends nothing |
 
 An example of the matching `.env` (the environment file, in OMV's compose plugin), with a value for every variable. The first four are the ones you must set; change the others only if you need to:
@@ -155,7 +156,7 @@ What the container reads (the compose file above sets them from the variables):
 | `Vault__OmvBaseUrl` | none, **required** | Base URL of the OMV web interface, for example `https://nas.local`. Vault adds `/rpc.php` |
 | `Vault__OmvUsername` | none, **required** | User name of the OMV account |
 | `Vault__OmvPasswordFile` | `/run/secrets/omv_password` | File with the account's password as plain text (one trailing line break is ignored). It is read again at each login, so a rotated secret needs no restart |
-| `Vault__TimeoutSeconds` | `10` | Time limit of each request to OMV, 1 to 120 |
+| `Vault__TimeoutSeconds` | `20` | Time limit of each request to OMV, 1 to 120 |
 | `Vault__AllowInvalidCertificate` | `false` | Accept any TLS certificate from OMV (it ships a self-signed one). With it on, anyone on your network can impersonate OMV and receive the password |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | When set, logs and traces are exported through OTLP. For Seq: `http://seq:5341/ingest/otlp` |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` (`http/protobuf` in the repository's compose file) | Seq only accepts `http/protobuf`: set it when exporting to Seq |
@@ -198,7 +199,7 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds t
 
 ### Releasing
 
-Publishing is continuous delivery of the **image**, triggered by a version tag. [`release.yml`](.github/workflows/release.yml) runs when a tag such as `v0.1.0` (or `v0.1.0-beta.1`, a pre-release) is pushed: it checks that the commit is in `main`, runs the tests, builds the image, smoke-tests and system-tests that build, scans it (a warning, never a block), pushes it to `ghcr.io/javixulo/vault` for `amd64` and `arm64` with an SBOM and build provenance, and creates the GitHub release with the changelog entry as its notes. Steps to release: update `CHANGELOG.md` (the entry's heading is `## [0.1.0] - 2026-12-01`), commit, then `git tag v0.1.0 && git push origin v0.1.0`. Deploying to the NAS is your compose file: set `VAULT_VERSION` and pull (see [Run with Docker](#run-with-docker)). Details and reasons: [`docs/technical_spec.md`](docs/technical_spec.md), section 9.
+Publishing is continuous delivery of the **image**, triggered by a version tag. [`release.yml`](.github/workflows/release.yml) runs when a tag such as `v0.1.0` (or `v0.1.0-beta.1`, a pre-release) is pushed: it checks that the commit is in `main`, runs the tests, builds the image, smoke-tests and system-tests that build, scans it (a warning, never a block), pushes it to `ghcr.io/javixulo/vault` for `amd64` and `arm64` with an SBOM and build provenance, and sets the GitHub release's title and notes from the changelog entry. Steps to release: update `CHANGELOG.md` (the entry's heading is `## [0.1.0] - 2026-12-01`) and commit it to `main`; then, on GitHub, **Releases → Draft a new release**, choose *Create new tag on publish* with the version (`v0.1.0`), tick *pre-release* if the version has a suffix, and publish (the notes you type there are replaced by the changelog's). From a terminal, `git tag v0.1.0 && git push origin v0.1.0` does the same. Check the run in the Actions tab. Deploying to the NAS is your compose file: set `VAULT_VERSION` and pull (see [Run with Docker](#run-with-docker)). Details and reasons: [`docs/technical_spec.md`](docs/technical_spec.md), section 9.
 
 ## Architecture
 
@@ -214,11 +215,8 @@ Publishing is continuous delivery of the **image**, triggered by a version tag. 
                    ▼
 ┌────────────────────────────────────────────┐
 │ Vault.Core   all the logic                 │
-│   services: SystemStatusReader,            │
-│   SharedFolderLister,                      │
-│   FolderPermissionsReader,                 │
-│   FolderAclReader,                         │
-│   UsersAndGroupsReader                     │
+│   one reader service per tool              │
+│   (SystemStatusReader, DisksReader, ...)   │
 │   port: IOmvRpcClient  ── OmvRpcCall       │
 │   (a fixed list of read-only calls)        │
 └──────────────────┬─────────────────────────┘
@@ -240,7 +238,7 @@ The main design decisions:
 | Path | What |
 |---|---|
 | `src/Vault.Mcp/` | The MCP server: host and HTTP transport (`Program.cs`), the tool classes (`Tools/`), configuration (`VaultOptions.cs`) and startup validation (`Startup/`) |
-| `src/Vault.Core/` | The logic: the OMV RPC client and the fixed list of calls (`Rpc/`), one service per tool (`SystemInfo/`, `Shares/`, `Users/`), results and messages (`Models/`) |
+| `src/Vault.Core/` | The logic: the OMV RPC client and the fixed list of calls (`Rpc/`), one reader per tool, grouped by area (`SystemInfo/`, `Shares/`, `Users/`, `Disks/`, `Docker/`...), results and messages (`Models/`) |
 | `tests/Vault.UnitTests/` | Unit tests: pure logic |
 | `tests/Vault.IntegrationTests/` | Integration tests: the client and services against a stand-in of OMV, startup validation |
 | `tests/Vault.ContractTests/` | Contract tests through a real MCP client |
@@ -251,7 +249,7 @@ The main design decisions:
 | `.github/workflows/` | CI (`ci.yml`), the release that publishes the image (`release.yml`) and its rehearsal (`release-dry-run.yml`) |
 | `docs/` | Functional spec (what the tools do) and technical spec (how and why) |
 | `Dockerfile`, `docker-compose.yml` | Container image and deployment |
-| `.env.template` | Template of `.env`, the non-secret settings for compose |
+| `.env.template` | Template of `.env`, the variables the compose file needs (the OMV account included: keep your copy private) |
 | `scripts/smoke-test.sh` | Smoke test of the Docker image: it starts, `/health` answers and the tools are listed |
 
 ## License
