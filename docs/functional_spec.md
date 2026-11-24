@@ -2,7 +2,7 @@
 
 > Draft in review: use cases and acceptance criteria, one section per tool. Vault is a **read-only** MCP server that wraps the JSON-RPC API of OpenMediaVault (OMV), so an agent can ask about the state of the NAS (permissions, services, disks, users, backups) without shell access.
 >
-> **Seven tools are built and confirmed** against a real OMV 8.5.12 (`get_folder_permissions` and `get_folder_acl` were checked by reading the real answers of `ShareMgmt.getPrivileges` and `ShareMgmt.getFileACL` on 2026-11-23, and `list_users_and_groups`, `list_services` and `list_disks` those of `UserMgmt.*`, `Services.getStatus` and `DiskMgmt.enumerateDevices` / `Smart.getList` on 2026-11-24). Two more (2.8 and 2.9) are specified below but **not built**: their RPC calls (section 4) are a plain guess from OMV's source and documentation — see the open question *Remaining tool catalog*. `list_docker_containers` (2.10) is a bare working title, because which data source it uses is not decided yet (see the open question *Docker containers source*).
+> **Eight tools are built and confirmed** against a real OMV 8.5.12 (`get_folder_permissions` and `get_folder_acl` were checked by reading the real answers of `ShareMgmt.getPrivileges` and `ShareMgmt.getFileACL` on 2026-11-23, and `list_users_and_groups`, `list_services`, `list_disks` and `list_filesystems` those of `UserMgmt.*`, `Services.getStatus`, `DiskMgmt.enumerateDevices` / `Smart.getList` and `FileSystemMgmt.enumerateFilesystems` on 2026-11-24). Two more are specified below but **not built**: `list_scheduled_tasks` (2.9) and `list_pending_updates` (2.10) — their RPC calls (section 4) are a plain guess from OMV's source and documentation; see the open question *Remaining tool catalog*. The Docker family (2.11–2.16: `list_docker_containers`, `list_docker_images`, `list_docker_services`, `list_docker_volumes`, `list_docker_networks` and `list_docker_ports`) are bare working titles, because neither their data source nor whether they should be one tool or several is decided yet — see the open question *Docker tools: data source and shape*.
 
 ## 1. Information model
 
@@ -93,6 +93,23 @@ An entry of `list_disks`.
 | `size_bytes` | Capacity |
 | `smart_status` | `passed`, `failed` or `unknown` (no SMART support, for example a USB drive) |
 | `temperature_celsius` | `null` when OMV reports none |
+
+### File system
+
+An entry of `list_filesystems`: a filesystem OMV manages, mounted or not — a disk from `list_disks` can hold several of these, or none. Confirmed against a real OMV 8.5.12 (2026-11-24).
+
+| Field | Notes |
+|---|---|
+| `device` | The partition or device it lives on, for example `/dev/sda1` |
+| `uuid` | Filesystem UUID OMV identifies it by |
+| `type` | For example `ext4`, `btrfs`, `xfs` |
+| `label` | Volume label. `null` when none |
+| `mounted` | Whether it is currently mounted |
+| `mount_point` | Where it is mounted. `null` when not mounted |
+| `size_bytes` | Capacity in bytes. `null` when not mounted |
+| `used` | Used space as the text OMV shows (`22.10 GiB`, `4.35 TiB`), not bytes: OMV only reports it rounded, so Vault does not turn it into a number. `null` when not mounted |
+| `available_bytes` | Free space in bytes, exact. `null` when not mounted |
+| `used_percent` | Percentage of the capacity in use, a whole number. `null` when not mounted |
 
 ### Scheduled task
 
@@ -410,7 +427,34 @@ How it works: Vault calls `DiskMgmt.enumerateDevices` (every disk, a plain list)
 
 RAID status is not part of this tool yet; see the open question *Remaining tool catalog*.
 
-### 2.8 Tool `list_scheduled_tasks`
+### 2.8 Tool `list_filesystems`
+
+Lists the filesystems OMV manages, mounted or not — distinct from `list_disks` (2.7), which reports the physical disks: one disk can hold several filesystems, or none.
+
+**Input:** none.
+
+**Output** (`FilesystemsResult`)
+
+| Field | Type | Notes |
+|---|---|---|
+| `filesystems` | list of File system | Every filesystem OMV reports, in OMV's order |
+| `message` | text | Set when `filesystems` is empty: why, and what to do next |
+| `error` | Error | Empty when the call worked. See section 3 |
+
+#### UC-23 · List filesystems
+
+**Acceptance criteria**
+
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-23.AC1 | Report what OMV says | OMV reports its filesystems | The client calls the tool | Success, and `filesystems` has one entry per filesystem OMV reported, in OMV's order, each with its fields. `message` is empty |
+| UC-23.AC2 | A value OMV does not report | A filesystem has no label, or is not mounted (no `mount_point`, `size_bytes`, `used`, `available_bytes` or `used_percent`) | The client calls the tool | Success, that field is `null` on that entry, and every other field and entry is reported normally. The call is not an error |
+| UC-23.AC3 | An answer Vault cannot read | OMV answers with something that is not a list, or sends a filesystem entry without a device | The client calls the tool | Failed, with `omv_bad_response`, and no partial result: an entry left out would look like one that does not exist |
+| UC-23.AC4 | No filesystems | OMV reports an empty list | The client calls the tool | Success, `filesystems` empty and a `message` that says OMV reported none. The call is not an error |
+
+How it works: Vault calls `FileSystemMgmt.enumerateFilesystems` once, which answers with a plain list of every filesystem OMV manages, mounted or not. Checked against a real OMV 8.5.12 on 2026-11-24 (twelve filesystems: three data disks, the system one and the EFI partition mounted; the SD card's partitions and a swap not mounted). `device` is `canonicaldevicefile` (`/dev/sdb1`); `uuid`, `type`, `label` (an empty text is `null`) and `mounted` are passed on. `size` and `available` arrive as bytes in text and `percentage` as a number, but `used` as human text (`22.10 GiB`, `4.35 TiB`): Vault passes that text on as it is instead of turning it into a number that would look exact (the free space is not `size - used`, because ext4 reserves blocks, so `available_bytes` is the exact figure). A filesystem that is not mounted has an empty `mountpoint` and `-1` in `size`, `used`, `available` and `percentage`: Vault reports them as `null`. The mapping stays tolerant (a list, or an object with a `data` list; a missing field is `null`, and so is a used space Vault cannot read); the description, `blocks`, device links and the `prop*` flags are not passed on.
+
+### 2.9 Tool `list_scheduled_tasks`
 
 Lists the OMV cron jobs (scheduled tasks and backups) and the result of their last run.
 
@@ -441,18 +485,23 @@ Lists the OMV cron jobs (scheduled tasks and backups) and the result of their la
 |---|---|---|---|---|
 | UC-17.AC1 | None configured | OMV has no cron jobs | The client calls the tool | Success, an empty list, and a `message` that says OMV has none and that nothing is wrong with the call |
 
-### 2.9 Tool `list_pending_updates`
+### 2.10 Tool `list_pending_updates`
 
-Lists the system updates OMV has pending.
+Lists the system updates OMV has pending. By default it only says how many; the full list is returned only when asked for.
 
-**Input:** none.
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `detailed` | boolean | No | Default `false`. When `false`, only `count` is reported. When `true`, `updates` also lists every package with an update available |
 
 **Output** (`PendingUpdatesResult`)
 
 | Field | Type | Notes |
 |---|---|---|
-| `updates` | list of Pending update | Every package with an update available |
-| `message` | text | Set when `updates` is empty: that the system is up to date |
+| `count` | integer | How many packages have an update available. Always reported, in both modes |
+| `updates` | list of Pending update | Only reported when `detailed` is `true`; empty when it is `false` |
+| `message` | text | Set when `count` is 0: that the system is up to date |
 | `error` | Error | Empty when the call worked. See section 3 |
 
 #### UC-18 · List pending updates
@@ -461,7 +510,8 @@ Lists the system updates OMV has pending.
 
 | ID | Name | Given | When | Then |
 |---|---|---|---|---|
-| UC-18.AC1 | Report what OMV says | OMV has updates pending | The client calls the tool | Success, and `updates` has one entry per package, with its current and candidate version. `message` is empty |
+| UC-18.AC1 | Count by default | OMV has updates pending | The client calls the tool with no argument | Success, `count` is the number of packages pending, and `updates` is empty. `message` is empty |
+| UC-18.AC2 | Full list on request | OMV has updates pending | The client calls the tool with `detailed: true` | Success, `count` as above, and `updates` has one entry per package, with its current and candidate version |
 
 #### UC-19 · Up to date
 
@@ -469,11 +519,31 @@ Lists the system updates OMV has pending.
 
 | ID | Name | Given | When | Then |
 |---|---|---|---|---|
-| UC-19.AC1 | Nothing pending | OMV has no update pending | The client calls the tool | Success, an empty list, and a `message` that says the system is up to date |
+| UC-19.AC1 | Nothing pending | OMV has no update pending | The client calls the tool, with or without `detailed` | Success, `count` is 0, `updates` is empty, and a `message` that says the system is up to date |
 
-### 2.10 Tool `list_docker_containers` (working title)
+### 2.11 Tool `list_docker_containers` (working title)
 
-Not yet specified, and its data source is not decided either (OMV's own Docker plugin, if any; a socket is very unlikely to be acceptable for a read-only MCP). See the open question *Docker containers source*.
+Not yet specified, and its data source is not decided either (OMV's own Docker plugin, if any; a socket is very unlikely to be acceptable for a read-only MCP). See the open question *Docker tools: data source and shape*.
+
+### 2.12 Tool `list_docker_images` (working title)
+
+Not yet specified. Would report the Docker images on the NAS and, ideally, whether a newer version of each is available — only real traffic against OMV's Docker plugin (or whatever source is chosen) will say if that is possible without reaching outside the NAS. See the open question *Docker tools: data source and shape*.
+
+### 2.13 Tool `list_docker_services` (working title)
+
+Not yet specified. Whether OMV's Docker setup has a concept of "service" distinct from a container (for example Docker Compose services, or Swarm, which a single-host NAS is unlikely to run) is itself unconfirmed. See the open question *Docker tools: data source and shape*.
+
+### 2.14 Tool `list_docker_volumes` (working title)
+
+Not yet specified. See the open question *Docker tools: data source and shape*.
+
+### 2.15 Tool `list_docker_networks` (working title)
+
+Not yet specified. See the open question *Docker tools: data source and shape*.
+
+### 2.16 Tool `list_docker_ports` (working title)
+
+Not yet specified. Whether the ports in use are a concept of their own, or just a field already covered by `list_docker_containers` (a container's own port mappings), is itself unconfirmed. See the open question *Docker tools: data source and shape*.
 
 ## 3. Common behaviour
 
@@ -585,8 +655,9 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 | `Services.getStatus` | `list_services` | Returns every service OMV manages as a list of `{name, title, enabled, running}`; on the test NAS: `Docker`, `cterm`, `nfs`, `rsyncd`, `samba` and `ssh` | A `get` that reads the state of the services; starts and stops none |
 | `DiskMgmt.enumerateDevices` | `list_disks` | Returns every disk OMV sees as a plain list of `{devicename, canonicaldevicefile, devicefile, model, size, serialnumber, temperature, ...}` (`size` and `temperature` as text, `temperature` empty when unknown) | A `get` that reads the devices |
 | `Smart.getList` (`params: {start: 0, limit: -1}`) | `list_disks` | Returns `{total, data}` with the disks that have SMART support, each with its `overallstatus` (`GOOD`, `BAD_STATUS`...) | A `get` that reads the status OMV already has; does not run a SMART test |
+| `FileSystemMgmt.enumerateFilesystems` | `list_filesystems` | Returns every filesystem OMV manages, mounted or not, as a plain list of `{canonicaldevicefile, uuid, label, type, mounted, mountpoint, size, used, available, ...}` (`size` and `available` as text in bytes, `used` as human text, `-1` when not mounted) | A `get` that reads the configured list; mounts and unmounts nothing |
 
-**Not confirmed at all yet** — the team's best reading of OMV's own source and documentation for the rest of sections 2.8 and 2.9, never tested against a server and never seen in real traffic either. A call here can change name, parameters or disappear once checked; see the open question *Remaining tool catalog*. None of the calls of this table is exposed in the code yet; when a call is confirmed (request or, better, a real response), its row moves up.
+**Not confirmed at all yet** — the team's best reading of OMV's own source and documentation for the rest of sections 2.9 and 2.10, never tested against a server and never seen in real traffic either. A call here can change name, parameters or disappear once checked; see the open question *Remaining tool catalog*. None of the calls of this table is exposed in the code yet; when a call is confirmed (request or, better, a real response), its row moves up.
 
 | RPC call | Used by | What it does | Why it is read-only |
 |---|---|---|---|
@@ -598,6 +669,6 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 | # | Title | Description | Status | Priority | Comments |
 |---|---|---|---|---|---|
 | 1 | OMV version | Whether the services Vault calls (`Session`, `System`, `ShareMgmt`) keep the same methods, parameters and answer fields as OMV is updated. | Half-way | High | The real NAS runs OMV 8.5.12-1 (a UGREEN DXP2800, updated regularly), so Vault targets OMV 8.x. Checked against OMV 8.5.1 in a community Docker image (no systemd, no disks, no shared folders): the login answer (`status: "authenticated"`, not `authenticated: true`), the session cookie, HTTP 401 for an invalid session, HTTP 400 for a bad login and the fields of `System.getInformation` are confirmed, and Vault works against it. Also checked against the real 8.5.12-1 with an account in the group `openmediavault-admin`: both tools work and `ShareMgmt.getList` returns `reldirpath` and `comment` as assumed. Left: whether an account outside that group can call these methods (the real test was not done without the group), and how to notice that an OMV update changed an answer. |
-| 2 | Remaining tool catalog | Tool 2.5 (`list_users_and_groups`) is built and confirmed against the real NAS (2026-11-24: OMV's users have `comment`, `groups` and `system` and no "disabled" flag, so the model's `disabled` is gone and `system` splits the result in two blocks). Tool 2.6 (`list_services`) is built and confirmed against the real NAS (2026-11-24: one `Services.getStatus` call answers a plain list of `{name, title, enabled, running}`); tool 2.7 (`list_disks`) is built and confirmed against the real NAS (2026-11-24: `DiskMgmt.enumerateDevices` answers a plain list and `Smart.getList` a `{total, data}` with only the disks that have SMART, each with an `overallstatus`); tools 2.8 and 2.9 (`list_scheduled_tasks`, `list_pending_updates`) are specified with their input, output and acceptance criteria but not built; `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: for `list_scheduled_tasks` and `list_pending_updates` even the calls themselves are unconfirmed. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: confirm each remaining call against the real NAS the way `list_users_and_groups` was (expose the call, read the real answer, fix the models and `FakeOmvServer`). One at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
+| 2 | Remaining tool catalog | Tool 2.5 (`list_users_and_groups`) is built and confirmed against the real NAS (2026-11-24: OMV's users have `comment`, `groups` and `system` and no "disabled" flag, so the model's `disabled` is gone and `system` splits the result in two blocks). Tool 2.6 (`list_services`) is built and confirmed against the real NAS (2026-11-24: one `Services.getStatus` call answers a plain list of `{name, title, enabled, running}`); tool 2.7 (`list_disks`) is built and confirmed against the real NAS (2026-11-24: `DiskMgmt.enumerateDevices` answers a plain list and `Smart.getList` a `{total, data}` with only the disks that have SMART, each with an `overallstatus`); tool 2.8 (`list_filesystems`) is built and confirmed against the real NAS (2026-11-24: `FileSystemMgmt.enumerateFilesystems` answers a plain list; `used` is human text, not bytes, and an unmounted filesystem has `-1` in its sizes); tools 2.9 and 2.10 (`list_scheduled_tasks`, `list_pending_updates`) are specified with their input, output and acceptance criteria but not built; `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: for `list_scheduled_tasks` and `list_pending_updates` even the calls themselves are unconfirmed. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: confirm each remaining call against the real NAS the way `list_users_and_groups` was (expose the call, read the real answer, fix the models and `FakeOmvServer`). One at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
 | 3 | Credentials secret | How the OMV account reaches the container. Settled: a Docker secret mounted as a file (`secrets/omv_credentials.json`, see `.example.json`), never an environment variable or the repository; and the file is the JSON object `{"username", "password"}` proposed in the technical spec. Still open: who creates and rotates the secret, and the file permissions for the non-root user the container runs as. | Half-way | Medium | Left to settle: who creates and rotates the secret, and the file permissions for the container's user (technical spec, section 4). |
-| 4 | Docker containers source | Whether the status of the containers on the NAS comes from OMV (its Docker plugin, if it has an RPC for it), from the Docker socket or from Portainer. It is probably outside the RPC of OMV, and a socket gives much more access than Vault should have. | Open | Medium | Decide before building the containers tool. |
+| 4 | Docker tools: data source and shape | Whether the status of containers, images, services, volumes, networks and ports on the NAS comes from OMV (its Docker plugin, if it has an RPC for it), from the Docker socket or from Portainer. It is probably outside the RPC of OMV, and a socket gives much more access than Vault should have. Also open: whether the six working titles (2.11–2.16) should stay six narrow tools or be merged into fewer broader ones (for example one `list_docker` tool with a block per concept), and whether `list_docker_services` and `list_docker_ports` name a real, separate concept in OMV's Docker or just duplicate what `list_docker_containers` already reports (a container's own ports; Compose/Swarm services a single-host NAS is unlikely to run) — only real traffic against the NAS will tell. | Open | Medium | Decide once there is a real response to read for at least one of these; until then every tool from 2.12 on is a bare title, and 2.11 (`list_docker_containers`) stays one too until the source is picked. |
