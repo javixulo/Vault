@@ -4,7 +4,7 @@
 
 Vault is a small, **read-only** [MCP](https://modelcontextprotocol.io) server that wraps the JSON-RPC API of [OpenMediaVault](https://www.openmediavault.org) (OMV). It plugs into your AI assistant and lets it look at the real state of the NAS (system, shared folders and, as the catalog grows, permissions, services, disks, users and backups) instead of trusting documentation that may be out of date.
 
-> **Status: skeleton.** Eleven tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`, `list_services`, `list_disks`, `list_filesystems`, `list_scheduled_tasks`, `list_pending_updates` and `list_docker_containers` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); other OMV versions are untested.
+> **Status: skeleton.** Eleven tools are built and have been run against OMV 8.5.12 (a real NAS): `system_status`, `list_shared_folders`, `get_folder_permissions`, `get_folder_acl`, `list_users_and_groups`, `list_services`, `list_disks`, `list_filesystems`, `list_scheduled_tasks`, `list_pending_updates` and `list_docker_containers` (the first two also against 8.5.1, a Docker image). The rest of the catalog is specified but not built (see the open questions in [`docs/functional_spec.md`](docs/functional_spec.md)); Vault stays strictly read-only and keeps only this one Docker tool, because the other Docker tools (images, volumes, networks, ports, and later managing containers) are planned as a separate MCP over the Docker socket; other OMV versions are untested.
 
 ## Tools
 
