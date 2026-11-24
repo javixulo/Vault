@@ -13,7 +13,7 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c> and <c>Services.getStatus</c>, and it
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>DiskMgmt.enumerateDevices</c> and <c>Smart.getList</c>, and it
 /// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
 /// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
@@ -172,6 +172,18 @@ public sealed class FakeOmvServer : IAsyncDisposable
             {
                 new { name = "ssh", title = "SSH", enabled = true, running = true },
                 new { name = "smb", title = "SMB/CIFS", enabled = true, running = false },
+            }),
+            // Shapes checked against a real OMV 8.5.12 (2026-11-24): enumerateDevices is a plain list (size and temperature as
+            // text, empty when unknown); Smart.getList is {total, data} and only has the disks with SMART support.
+            ("DiskMgmt", "enumerateDevices") => Ok(new[]
+            {
+                new { devicename = "sda", canonicaldevicefile = "/dev/sda", model = "ST4000VN006-3CW104", size = "4000787030016", temperature = "36" },
+                new { devicename = "sdb", canonicaldevicefile = "/dev/sdb", model = "BUP BK", size = "5000981077504", temperature = "" },
+            }),
+            ("Smart", "getList") => Ok(new
+            {
+                total = 1,
+                data = new[] { new { devicename = "sda", canonicaldevicefile = "/dev/sda", model = "ST4000VN006-3CW104", size = "4000787030016", temperature = "36", overallstatus = "GOOD" } },
             }),
             _ => Error(1, $"Unknown method {service}.{method}."),
         };

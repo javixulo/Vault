@@ -159,6 +159,33 @@ public sealed record ServicesResult(
     public static ServicesResult Failure(VaultError error) => new([], null, error);
 }
 
+public static class SmartStatuses
+{
+    public const string Passed = "passed";
+    public const string Failed = "failed";
+    public const string Unknown = "unknown";
+}
+
+/// <summary>A disk OMV sees. <c>SmartStatus</c> is passed, failed or unknown (no SMART support); the rest is null when OMV does not say.</summary>
+public sealed record Disk(string Device, string? Model, long? SizeBytes, string SmartStatus, double? TemperatureCelsius);
+
+/// <summary>Outcome of <c>list_disks</c>. <c>Message</c> is set when there is nothing to return.</summary>
+public sealed record DisksResult(
+    IReadOnlyList<Disk> Disks,
+    string? Message = null,
+    VaultError? Error = null)
+{
+    /// <summary>Derived, not part of the contract: the call worked when it has no error.</summary>
+    [JsonIgnore]
+    public bool Ok => Error is null;
+
+    public static DisksResult Found(IReadOnlyList<Disk> disks) => new(disks);
+
+    public static DisksResult Empty(string message) => new([], message);
+
+    public static DisksResult Failure(VaultError error) => new([], null, error);
+}
+
 public static class ErrorCodes
 {
     public const string InvalidArguments = "invalid_arguments";

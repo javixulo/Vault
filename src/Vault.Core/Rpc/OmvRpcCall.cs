@@ -44,8 +44,14 @@ public sealed class OmvRpcCall
     /// <summary>The state of the services OMV manages. Used by <c>list_services</c>. Checked against OMV 8.5.12.</summary>
     public static readonly OmvRpcCall ServicesStatus = new("Services", "getStatus");
 
+    /// <summary>The block devices OMV sees. Used by <c>list_disks</c>. Checked against OMV 8.5.12.</summary>
+    public static readonly OmvRpcCall Disks = new("DiskMgmt", "enumerateDevices");
+
+    /// <summary>The disks with SMART support and their overall status. Used by <c>list_disks</c>. Checked against OMV 8.5.12.</summary>
+    public static readonly OmvRpcCall DisksSmart = new("Smart", "getList");
+
     /// <summary>Every call a tool can make, in a fixed order. <see cref="Login"/> is not here.</summary>
-    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus];
+    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart];
 
     public override string ToString() => Name;
 }

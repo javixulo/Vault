@@ -18,6 +18,10 @@ internal sealed class StubOmv : IOmvRpcClient
     public Func<OmvRpcCall, JsonElement> Answer { get; set; } = call =>
         call == OmvRpcCall.SystemInformation
             ? Parse("""{"hostname":"nas","version":"7.4.0","kernel":"Linux 6.1","cpuModelName":"N100","cpuUtilization":3.5,"memTotal":8000,"memUsed":2000,"uptime":3600}""")
+            : call == OmvRpcCall.Disks
+                ? Parse("""[{"canonicaldevicefile":"/dev/sda","model":"ST4000","size":"4000787030016","temperature":"36"},{"canonicaldevicefile":"/dev/sdb","model":"","size":"5000981077504","temperature":""}]""")
+            : call == OmvRpcCall.DisksSmart
+                ? Parse("""{"total":1,"data":[{"canonicaldevicefile":"/dev/sda","overallstatus":"GOOD"}]}""")
             : call == OmvRpcCall.ServicesStatus
                 ? Parse("""[{"name":"ssh","title":"SSH","enabled":true,"running":true},{"name":"smb","title":"SMB/CIFS","enabled":true},{"name":"nfs","title":"NFS","enabled":false,"running":false}]""")
             : call == OmvRpcCall.Users
