@@ -5,7 +5,7 @@ FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 # The version comes from the release tag (release workflow); any other build says it is a development build.
 ARG VERSION=0.0.0-dev
 WORKDIR /src
-COPY global.json Directory.Build.props ./
+COPY global.json Directory.Build.props Directory.Packages.props ./
 COPY src/Vault.Core/Vault.Core.csproj src/Vault.Core/
 COPY src/Vault.Mcp/Vault.Mcp.csproj src/Vault.Mcp/
 RUN dotnet restore src/Vault.Mcp

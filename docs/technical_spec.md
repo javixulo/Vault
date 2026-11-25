@@ -186,7 +186,7 @@ The test jobs run the executables packed by `build` (no checkout, restore or com
 
 ### Dependency updates
 
-**Decided (2026-11-25).** `.github/dependabot.yml` proposes updates for four ecosystems, each grouped in **one pull request**, on the 1st and the 16th of each month (cron cannot express an exact interval; security updates are not delayed by it): GitHub Actions (the workflows, pinned to a commit SHA), the .NET SDK pinned in `global.json`, Docker (the base images) and NuGet (the packages of every project in `src/` and `tests/`). Nothing is merged without the CI passing and a person reading it.
+**Decided (2026-11-25).** `.github/dependabot.yml` proposes updates for four ecosystems, each grouped in **one pull request**, on the 1st and the 16th of each month (cron cannot express an exact interval; security updates are not delayed by it): GitHub Actions (the workflows, pinned to a commit SHA), the .NET SDK pinned in `global.json`, Docker (the base images) and NuGet (the packages of every project, whose versions are in `Directory.Packages.props`). Nothing is merged without the CI passing and a person reading it.
 
 **Held back, and what ends the hold.** A new version is ignored when the project's requirements rule it out:
 
@@ -196,9 +196,11 @@ The test jobs run the executables packed by `build` (no checkout, restore or com
 | Major versions of the SDK in `global.json` and of the `dotnet/sdk` and `dotnet/aspnet` images | The project is .NET 10 (section 1, `global.json`). | The project moves to the next .NET. |
 | Major versions of `Microsoft.Extensions.*` and `Microsoft.AspNetCore.*` | These packages have the version of the runtime they go with: their next major needs the next .NET. | The same move to the next .NET. |
 
-Moving to a new .NET is one change: `global.json`, `Directory.Build.props`, the base images, the `10.*` ranges of the packages above, and these ignores.
+Moving to a new .NET is one change: `global.json`, `Directory.Build.props`, the base images, the versions of the platform packages in `Directory.Packages.props`, and these ignores.
 
-**Not verified.** The packages written with a floating range (`1.*`, `10.*`) are resolved to the newest compatible version on every restore, and Dependabot is not expected to propose a change for a range, only for a fixed version. After the first scheduled run, check which packages it proposed; if the ranges are skipped, decide whether to pin them to a version (reproducible, and covered by the bot) or leave them floating.
+**Package versions are written once, and fixed.** `Directory.Packages.props` (NuGet central package management) holds the version of every package; the `.csproj` files reference a package without a version, so all projects share it and an update is one line. The versions are exact, with no ranges. Reason: a range (`1.*`, `10.*`) changes the build silently at every restore, and Dependabot only reacts to it when a newer version falls outside the range (the first run, 2026-11-25, proposed `xunit.v3` and `xunit.runner.visualstudio`, which were fixed, and none of the ranges that still matched the newest version). A new package is added to `Directory.Packages.props` first, then referenced. The `Dockerfile` copies `Directory.Packages.props` before it restores.
+
+**Not verified.** That Dependabot finds every project through the central file with `directory: /` (the first run was made before this change). After the next run, the update job in the repository's Insights, Dependency graph, Dependabot page should list the packages of all six projects; if it does not, list the project folders again in `directories`.
 
 ## 9. Delivery
 

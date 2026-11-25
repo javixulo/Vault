@@ -20,11 +20,9 @@ updates:
     commit-message:
       prefix: "ci"
 
-  # The NuGet packages of every project (one folder per project, so the update does not depend on how the solution file is read).
+  # The NuGet packages. Their versions are all in `Directory.Packages.props` (central package management).
   - package-ecosystem: nuget
-    directories:
-      - "/src/*"
-      - "/tests/*"
+    directory: /
     schedule:
       interval: cron
       cronjob: "0 5 1,16 * *"
