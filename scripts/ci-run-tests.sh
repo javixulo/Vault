@@ -9,7 +9,7 @@
 set -uo pipefail
 
 project="${1:?Usage: ci-run-tests.sh <TestProject>, for example Tinker.UnitTests}"
-executable="tests/${project}/bin/Release/net10.0/${project}"
+executable="tests/${project}/bin/Release/net11.0/${project}"
 results="test-results/${project}.xml"
 
 mkdir -p test-results

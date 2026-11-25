@@ -1,10 +1,10 @@
 # Vault
 
-C# / .NET 10 MCP server: a **read-only** wrapper of the OpenMediaVault (OMV) JSON-RPC API, so an agent can ask about the state of the NAS without shell access. A capability of Sigil, in the same family as Tinker.
+C# / .NET 11 MCP server: a **read-only** wrapper of the OpenMediaVault (OMV) JSON-RPC API, so an agent can ask about the state of the NAS without shell access. A capability of Sigil, in the same family as Tinker.
 
 ## Rules
 
-- Everything is **C# on .NET 10**.
+- Everything is **C# on .NET 11**.
 - The specs are in `docs/`. Read `docs/functional_spec.md` and `docs/technical_spec.md` before changing behaviour, and update them when a decision is made.
 - The contract with the clients is the tool names, schemas and messages (technical spec), not the implementation. Do not change it without saying so.
 - Messages in tool results are written for the AI that consumes them: what happened and what to do next. Never return a raw exception.

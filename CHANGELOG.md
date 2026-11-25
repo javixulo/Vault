@@ -6,6 +6,10 @@ against) is in [`docs/technical_spec.md`](docs/technical_spec.md), section 10.
 
 ## [Unreleased]
 
+### Changed
+
+- The image now runs on .NET 11 (it was .NET 10). Nothing changes in the tools, the configuration, the port or the image tags. The `arm64` image has not been run on .NET 11 yet; if it fails to start on an ARM host, go back to the previous version (set `VAULT_VERSION`).
+
 ## [0.1.0] - 2026-11-24
 
 First version of Vault: a read-only MCP server for the OpenMediaVault (OMV) API, so an AI assistant can ask about the

@@ -30,8 +30,8 @@ updates:
       nuget-packages:
         patterns: ["*"]
     ignore:
-      # The project is .NET 10 (technical spec, section 1; `global.json`). The packages of the .NET platform have the
-      # version of the runtime they go with, so their next major version needs .NET 11. Moving to it is a decision, not an update.
+      # The project is .NET 11 (technical spec, section 1; `global.json`). The packages of the .NET platform have the
+      # version of the runtime they go with, so their next major version needs .NET 12. Moving to it is a decision, not an update.
       - dependency-name: "Microsoft.Extensions.*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "Microsoft.AspNetCore.*"
@@ -49,7 +49,7 @@ updates:
       dotnet-sdk:
         patterns: ["*"]
     ignore:
-      # The project is .NET 10 (technical spec, section 1). Moving to .NET 11 is a decision, not an update.
+      # The project is .NET 11 (technical spec, section 1). Moving to .NET 12 is a decision, not an update.
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
     commit-message:
@@ -65,7 +65,7 @@ updates:
       base-images:
         patterns: ["*"]
     ignore:
-      # The project is .NET 10 (technical spec, section 1; `global.json`). Moving to .NET 11 is a decision, not an update.
+      # The project is .NET 11 (technical spec, section 1; `global.json`). Moving to .NET 12 is a decision, not an update.
       - dependency-name: "mcr.microsoft.com/dotnet/sdk"
         update-types: ["version-update:semver-major"]
       - dependency-name: "mcr.microsoft.com/dotnet/aspnet"

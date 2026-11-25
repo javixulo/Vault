@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # The build stage always runs on the machine that builds (the output is the same for every architecture: portable
 # assemblies), so a multi-platform build does not compile under emulation.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 # The version comes from the release tag (release workflow); any other build says it is a development build.
 ARG VERSION=0.0.0-dev
 WORKDIR /src
@@ -12,7 +12,7 @@ RUN dotnet restore src/Vault.Mcp
 COPY src/ src/
 RUN dotnet publish src/Vault.Mcp -c Release --no-restore -p:Version=${VERSION} -o /app
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:11.0
 ARG VERSION=0.0.0-dev
 LABEL org.opencontainers.image.title="Vault" \
       org.opencontainers.image.description="Read-only MCP server for the OpenMediaVault API" \

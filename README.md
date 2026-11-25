@@ -40,11 +40,11 @@ Use a dedicated OMV account for Vault, not the one you use yourself. See [Set up
 
 # Technical guide
 
-Vault is written in **C# / .NET 10**.
+Vault is written in **C# / .NET 11**.
 
 ## Requirements
 
-- Docker with Compose 2.23 or later (to run the published image), or the .NET SDK 10 (see `global.json`) to build and run it from source.
+- Docker with Compose 2.23 or later (to run the published image), or the .NET SDK 11 (see `global.json`) to build and run it from source.
 - OpenMediaVault 8.x (tested on 8.5.12), its web interface address, and an account for Vault.
 
 ## Set up the OMV account
