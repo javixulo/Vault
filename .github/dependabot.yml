@@ -20,6 +20,27 @@ updates:
     commit-message:
       prefix: "ci"
 
+  # The NuGet packages of every project (one folder per project, so the update does not depend on how the solution file is read).
+  - package-ecosystem: nuget
+    directories:
+      - "/src/*"
+      - "/tests/*"
+    schedule:
+      interval: cron
+      cronjob: "0 5 1,16 * *"
+    groups:
+      nuget-packages:
+        patterns: ["*"]
+    ignore:
+      # The project is .NET 10 (technical spec, section 1; `global.json`). The packages of the .NET platform have the
+      # version of the runtime they go with, so their next major version needs .NET 11. Moving to it is a decision, not an update.
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "build"
+
   # The base images of the Dockerfile.
   - package-ecosystem: docker
     directory: /

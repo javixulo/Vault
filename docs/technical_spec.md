@@ -184,6 +184,22 @@ ci-ok  (after every job above, even if they fail: the only check the branch prot
 
 The test jobs run the executables packed by `build` (no checkout, restore or compile), `scripts/ci-run-tests.sh <project>` runs each level and fails when no test ran, `ci-ok` is the only required check, every action is pinned to a commit SHA, and `release-dry-run.yml` rehearses publishing the image to a throwaway registry. Differences from Tinker: no model-tests job, no model download or cache, no trimming of native libraries (Vault has none). The reasons for each decision are in Tinker's technical spec, section 8.
 
+### Dependency updates
+
+**Decided (2026-11-25).** `.github/dependabot.yml` proposes updates for three ecosystems, each grouped in **one pull request**, on the 1st and the 16th of each month (cron cannot express an exact interval; security updates are not delayed by it): GitHub Actions (the workflows, pinned to a commit SHA), Docker (the base images) and NuGet (the packages of every project in `src/` and `tests/`). Nothing is merged without the CI passing and a person reading it.
+
+**Held back, and what ends the hold.** A new version is ignored when the project's requirements rule it out:
+
+| Ignored | Because | Ends when |
+|---|---|---|
+| Major versions of every GitHub Action | A new major can change inputs, the artifact format or the runtime; each is updated by hand after reading its notes and running the workflow. | Never as a rule: it is a manual step per action. |
+| Major versions of the `dotnet/sdk` and `dotnet/aspnet` images | The project is .NET 10 (section 1, `global.json`). | The project moves to the next .NET. |
+| Major versions of `Microsoft.Extensions.*` and `Microsoft.AspNetCore.*` | These packages have the version of the runtime they go with: their next major needs the next .NET. | The same move to the next .NET. |
+
+Moving to a new .NET is one change: `global.json`, `Directory.Build.props`, the base images, the `10.*` ranges of the packages above, and these ignores.
+
+**Not verified.** The packages written with a floating range (`1.*`, `10.*`) are resolved to the newest compatible version on every restore, and Dependabot is not expected to propose a change for a range, only for a fixed version. After the first scheduled run, check which packages it proposed; if the ranges are skipped, decide whether to pin them to a version (reproducible, and covered by the bot) or leave them floating.
+
 ## 9. Delivery
 
 **Decided (2026-11-24), written and linted, not yet run on GitHub.** The skills `container-delivery` and `versioning-and-changelog` are followed. Delivery here means **publishing the image**; deploying it to the NAS is the user's compose file (below).
