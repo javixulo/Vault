@@ -248,6 +248,7 @@ The main design decisions:
 | `CHANGELOG.md` | What changed in each version |
 | `.github/workflows/` | CI (`ci.yml`), the release that publishes the image (`release.yml`) and its rehearsal (`release-dry-run.yml`) |
 | `docs/` | Functional spec (what the tools do) and technical spec (how and why) |
+| `CLAUDE.md` | Rules for working on this repository with Claude Code. Its skills and agent come from the [`grimoire`](https://github.com/javixulo/grimoire) plugin, which is not part of this repository: install it to use them (`claude plugin marketplace add javixulo/grimoire`, then `claude plugin install grimoire@grimoire`). You do not need it to build, run or use Vault |
 | `Dockerfile`, `docker-compose.yml` | Container image and deployment |
 | `.env.template` | Template of `.env`, the variables the compose file needs (the OMV account included: keep your copy private) |
 | `scripts/smoke-test.sh` | Smoke test of the Docker image: it starts, `/health` answers and the tools are listed |

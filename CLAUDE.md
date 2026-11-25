@@ -15,14 +15,14 @@ C# / .NET 10 MCP server: a **read-only** wrapper of the OpenMediaVault (OMV) JSO
 
 ## Skills
 
-Project skills are in `.claude/skills/` and are versioned with the code.
+The reusable skills and the agent come from the **`grimoire` plugin** ([github.com/javixulo/grimoire](https://github.com/javixulo/grimoire)); they are not copied into this repository. Install it once per machine: `claude plugin marketplace add javixulo/grimoire`, then `claude plugin install grimoire@grimoire`. Improve them in that repository, not here. A skill particular to Vault would go in `.claude/skills/` of this repository.
 
-- `use-cases-and-criteria`: write the use cases and acceptance criteria of the functional spec.
-- `open-questions`: keep the table of open questions of each spec.
-- `mcp-tool-design`: design the tools (Vault's are all read-only).
-- `writing-tests`, `ci-pipeline`, `containerize-app`, `container-delivery`, `app-telemetry`, `versioning-and-changelog`: as in the other MCPs.
+- `grimoire:use-cases-and-criteria`: write the use cases and acceptance criteria of the functional spec.
+- `grimoire:open-questions`: keep the table of open questions of each spec.
+- `grimoire:mcp-tool-design`: design the tools (Vault's are all read-only).
+- `grimoire:writing-tests`, `grimoire:ci-pipeline`, `grimoire:containerize-app`, `grimoire:container-delivery`, `grimoire:app-telemetry`, `grimoire:versioning-and-changelog`: as in the other MCPs.
 
-The agent `spec-reviewer` (`.claude/agents/`) reviews the specs; run it after writing or changing them.
+The agent `grimoire:spec-reviewer` reviews the specs; run it after writing or changing them.
 
 ## Commands
 
