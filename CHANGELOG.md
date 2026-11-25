@@ -6,9 +6,12 @@ against) is in [`docs/technical_spec.md`](docs/technical_spec.md), section 10.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-25
+
 ### Changed
 
-- The image now runs on .NET 11 (it was .NET 10). Nothing changes in the tools, the configuration, the port or the image tags. The `arm64` image has not been run on .NET 11 yet; if it fails to start on an ARM host, go back to the previous version (set `VAULT_VERSION`).
+- The image now runs on .NET 11 (it was .NET 10). Nothing changes in the tools, the configuration, the port or the image tags.
+- The `arm64` image was started once under emulation and passed the smoke test (it starts, answers `/health` and lists the tools). It has not run on real ARM hardware; if it fails to start on an ARM host, go back to `0.1.0` (set `VAULT_VERSION`) and report it.
 
 ## [0.1.0] - 2026-11-24
 
