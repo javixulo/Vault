@@ -41,6 +41,22 @@ updates:
     commit-message:
       prefix: "build"
 
+  # The SDK version pinned in `global.json`.
+  - package-ecosystem: dotnet-sdk
+    directory: /
+    schedule:
+      interval: cron
+      cronjob: "0 5 1,16 * *"
+    groups:
+      dotnet-sdk:
+        patterns: ["*"]
+    ignore:
+      # The project is .NET 10 (technical spec, section 1). Moving to .NET 11 is a decision, not an update.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "build"
+
   # The base images of the Dockerfile.
   - package-ecosystem: docker
     directory: /
