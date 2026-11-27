@@ -105,11 +105,11 @@ public sealed record FolderAclResult(
     public static FolderAclResult Failure(string folder, VaultError error) => new(folder, null, null, null, null, null, [], null, error);
 }
 
-/// <summary>An OMV user. <c>FullName</c> is null when OMV reports none.</summary>
-public sealed record OmvUser(string Username, string? FullName, IReadOnlyList<string> Groups);
+/// <summary>An OMV user. <c>Uid</c> and <c>FullName</c> are null when OMV reports none.</summary>
+public sealed record OmvUser(string Username, long? Uid, string? FullName, IReadOnlyList<string> Groups);
 
-/// <summary>An OMV group and the usernames of its members.</summary>
-public sealed record OmvGroup(string Name, IReadOnlyList<string> Members);
+/// <summary>An OMV group and the usernames of its members. <c>Gid</c> is null when OMV reports none.</summary>
+public sealed record OmvGroup(string Name, long? Gid, IReadOnlyList<string> Members);
 
 /// <summary>The users and the groups of one side of <c>list_users_and_groups</c>.</summary>
 public sealed record UsersAndGroups(IReadOnlyList<OmvUser> Users, IReadOnlyList<OmvGroup> Groups)

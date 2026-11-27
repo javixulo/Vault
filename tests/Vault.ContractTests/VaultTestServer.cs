@@ -42,9 +42,9 @@ internal sealed class StubOmv : IOmvRpcClient
             : call == OmvRpcCall.ServicesStatus
                 ? Parse("""[{"name":"ssh","title":"SSH","enabled":true,"running":true},{"name":"smb","title":"SMB/CIFS","enabled":true},{"name":"nfs","title":"NFS","enabled":false,"running":false}]""")
             : call == OmvRpcCall.Users
-                ? Parse("""[{"name":"ana","comment":"Ana Lopez","groups":["family"],"system":false},{"name":"kid","comment":"","groups":["family"],"system":false},{"name":"root","comment":"root","groups":["root"],"system":true}]""")
+                ? Parse("""[{"name":"ana","uid":1000,"comment":"Ana Lopez","groups":["family"],"system":false},{"name":"kid","uid":1001,"comment":"","groups":["family"],"system":false},{"name":"root","uid":0,"comment":"root","groups":["root"],"system":true}]""")
             : call == OmvRpcCall.Groups
-                ? Parse("""[{"name":"family","members":["ana","kid"],"system":false},{"name":"admins","members":[],"system":false},{"name":"root","members":["root"],"system":true}]""")
+                ? Parse("""[{"name":"family","gid":1000,"members":["ana","kid"],"system":false},{"name":"admins","gid":1001,"members":[],"system":false},{"name":"root","gid":0,"members":["root"],"system":true}]""")
             : call == OmvRpcCall.SharedFolderAcl
                 ? Parse("""{"file":"srv/x/media/","owner":"root","group":"users","acl":{"user":7,"group":5,"other":0,"users":[{"name":"root","perms":null,"uid":0,"system":true},{"name":"kid","perms":5,"uid":1001,"system":false}],"groups":[{"name":"family","perms":7,"gid":1000,"system":false},{"name":"admins","perms":null,"gid":1001,"system":false}]}}""")
             : call == OmvRpcCall.SharedFolderPrivileges

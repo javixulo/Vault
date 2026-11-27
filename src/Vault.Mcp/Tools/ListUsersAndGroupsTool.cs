@@ -10,7 +10,7 @@ public sealed class ListUsersAndGroupsTool(UsersAndGroupsReader reader)
 {
     [McpServerTool(Name = "list_users_and_groups", Title = "List users and groups", UseStructuredContent = true, ReadOnly = true, OpenWorld = false)]
     [Description(
-        "Lists the OpenMediaVault (OMV) users and groups, and which groups each user belongs to. " +
+        "Lists the OpenMediaVault (OMV) users and groups with their numeric IDs (uid, gid), and which groups each user belongs to. " +
         "The result has two blocks, each with its own users and groups: system (accounts and groups of the operating system, like root or sshd) " +
         "and custom (the ones created in OMV, usually the ones that matter for permissions). " +
         "Use it to read the names that get_folder_permissions and get_folder_acl return against who actually exists and who is in which group. " +

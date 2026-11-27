@@ -29,6 +29,8 @@ public sealed class ListUsersAndGroupsContractTests : IAsyncLifetime
         Assert.Equal("Ana Lopez", users[0].GetProperty("full_name").GetString());
         Assert.Equal(["family"], users[0].GetProperty("groups").EnumerateArray().Select(g => g.GetString()));
         var groups = custom.GetProperty("groups").EnumerateArray().ToList();
+        Assert.Equal([1000, 1001], users.Select(u => u.GetProperty("uid").GetInt64()));
+        Assert.Equal([1000, 1001], groups.Select(g => g.GetProperty("gid").GetInt64()));
         Assert.Equal(["family", "admins"], groups.Select(g => g.GetProperty("name").GetString()));
         Assert.Equal(["ana", "kid"], groups[0].GetProperty("members").EnumerateArray().Select(m => m.GetString()));
         var system = content.GetProperty("system");

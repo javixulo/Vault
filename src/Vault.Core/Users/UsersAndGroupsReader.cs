@@ -62,7 +62,7 @@ public sealed class UsersAndGroupsReader(IOmvRpcClient omv, ILogger<UsersAndGrou
         bool Matches(string candidate) => filter is null || NameFilter.Matches(candidate, filter);
 
         var groups = Entries(groupsResponse, "groups")
-            .Select(entry => (Name: NameOf(entry, "group"), System: entry.ReadBool("system") == true, Members: Names(entry, "members")))
+            .Select(entry => (Name: NameOf(entry, "group"), Gid: entry.ReadLong("gid"), System: entry.ReadBool("system") == true, Members: Names(entry, "members")))
             .ToList();
 
         var users = Entries(usersResponse, "users")
@@ -75,6 +75,7 @@ public sealed class UsersAndGroupsReader(IOmvRpcClient omv, ILogger<UsersAndGrou
                     System: entry.ReadBool("system") == true,
                     User: new OmvUser(
                         username,
+                        entry.ReadLong("uid"),
                         entry.ReadString("comment") is { } text && !string.IsNullOrWhiteSpace(text) ? text : null,
                         [.. own.Concat(memberOf).Distinct(StringComparer.Ordinal)]));
             })
@@ -82,7 +83,7 @@ public sealed class UsersAndGroupsReader(IOmvRpcClient omv, ILogger<UsersAndGrou
 
         UsersAndGroups Side(bool system) => new(
             [.. users.Where(u => u.System == system && Matches(u.User.Username)).Select(u => u.User)],
-            [.. groups.Where(g => g.System == system && Matches(g.Name)).Select(g => new OmvGroup(g.Name, g.Members))]);
+            [.. groups.Where(g => g.System == system && Matches(g.Name)).Select(g => new OmvGroup(g.Name, g.Gid, g.Members))]);
 
         var (systemSide, customSide) = (Side(true), Side(false));
         return UsersAndGroupsResult.Found(

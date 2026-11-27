@@ -31,6 +31,8 @@ public sealed class UsersAndGroupsReaderTests
         Assert.Null(result.Message);
         Assert.Equal(["ana", "kid"], result.Custom.Users.Select(u => u.Username));
         Assert.Equal(["Ana Lopez", null], result.Custom.Users.Select(u => u.FullName));
+        Assert.Equal([1000L, null], result.Custom.Users.Select(u => u.Uid));
+        Assert.Equal([1000L, null], result.Custom.Groups.Select(g => g.Gid));
         Assert.Equal([["family"], ["family"]], result.Custom.Users.Select(u => u.Groups));
         Assert.Equal(["family", "admins"], result.Custom.Groups.Select(g => g.Name));
         Assert.Equal(["ana", "kid"], result.Custom.Groups[0].Members);

@@ -6,6 +6,10 @@ against) is in [`docs/technical_spec.md`](docs/technical_spec.md), section 10.
 
 ## [Unreleased]
 
+### Added
+
+- `list_users_and_groups` also returns the `uid` of each user and the `gid` of each group (`null` when OMV sends none).
+
 ## [0.1.1] - 2026-11-25
 
 ### Changed

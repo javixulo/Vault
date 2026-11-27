@@ -58,6 +58,7 @@ An entry of `list_users_and_groups`.
 | Field | Notes |
 |---|---|
 | `username` | Always present |
+| `uid` | Numeric user ID, as OMV reports it. `null` when OMV sends none |
 | `full_name` | The user's comment in OMV. `null` when blank |
 | `groups` | Names of the groups this user belongs to, all of them, also when the result is filtered by name |
 
@@ -70,6 +71,7 @@ An entry of `list_users_and_groups`.
 | Field | Notes |
 |---|---|
 | `name` | Always present |
+| `gid` | Numeric group ID, as OMV reports it. `null` when OMV sends none |
 | `members` | Usernames of its members |
 
 ### Service
@@ -385,7 +387,7 @@ Lists the OMV users and groups, and which group each user belongs to — the oth
 | UC-13.AC6 | Nothing matches | No user or group matches the `name` given (or OMV has none) | The client calls the tool | Success, both blocks empty, and a `message` that says nothing matched, and to try another text or leave the name out. The call is not an error |
 | UC-13.AC7 | Search with a wildcard | OMV has users and groups | The client gives a `name` with one or more `*` | Only the users and groups whose whole name matches are returned, ignoring case, with each `*` standing for any run of characters, also none: `grupo-*` is the names that start with `grupo-`, `*fotos` the ones that end with `fotos`. Any other character, a `.` or a `?` too, means itself: the name is not a regular expression |
 
-How it works: Vault calls `UserMgmt.enumerateAllUsers` (`{detail: "basic"}`) and `UserMgmt.enumerateAllGroups`, always for the whole NAS (the search is done by Vault, not by OMV), and reports their entries in OMV's order. Checked against a real OMV 8.5.12 on 2026-11-24: both answers are a plain list; a user is `{name, uid, gid, comment, dir, shell, groups, system}` (`groups` is a list of group names) and a group is `{name, gid, members, system}`, where `system` is a boolean. Vault reports `username`, `full_name` (from `comment`) and `groups`, and `name` and `members`; the uid, gid, home directory and shell are not passed on, and `system` is turned into the block the entry goes in. The mapping stays tolerant (a list, or an object with a `data` list; a missing field is `null`), and the `groups` of a user are the ones its own entry lists plus every group that lists the user as a member, worked out before filtering. Only a missing name or an answer that is not a list is a failure.
+How it works: Vault calls `UserMgmt.enumerateAllUsers` (`{detail: "basic"}`) and `UserMgmt.enumerateAllGroups`, always for the whole NAS (the search is done by Vault, not by OMV), and reports their entries in OMV's order. Checked against a real OMV 8.5.12 on 2026-11-24: both answers are a plain list; a user is `{name, uid, gid, comment, dir, shell, groups, system}` (`groups` is a list of group names) and a group is `{name, gid, members, system}`, where `system` is a boolean. Vault reports `username`, `uid`, `full_name` (from `comment`) and `groups`, and `name`, `gid` and `members`; the primary gid of a user, home directory and shell are not passed on, and `system` is turned into the block the entry goes in. The mapping stays tolerant (a list, or an object with a `data` list; a missing field is `null`), and the `groups` of a user are the ones its own entry lists plus every group that lists the user as a member, worked out before filtering. Only a missing name or an answer that is not a list is a failure.
 
 ### 2.6 Tool `list_services`
 
