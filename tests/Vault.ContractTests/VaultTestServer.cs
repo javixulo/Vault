@@ -47,6 +47,8 @@ internal sealed class StubOmv : IOmvRpcClient
                 ? Parse("""[{"name":"family","gid":1000,"members":["ana","kid"],"system":false},{"name":"admins","gid":1001,"members":[],"system":false},{"name":"root","gid":0,"members":["root"],"system":true}]""")
             : call == OmvRpcCall.SharedFolderAcl
                 ? Parse("""{"file":"srv/x/media/","owner":"root","group":"users","acl":{"user":7,"group":5,"other":0,"users":[{"name":"root","perms":null,"uid":0,"system":true},{"name":"kid","perms":5,"uid":1001,"system":false}],"groups":[{"name":"family","perms":7,"gid":1000,"system":false},{"name":"admins","perms":null,"gid":1001,"system":false}]}}""")
+            : call == OmvRpcCall.FolderBrowser
+                ? Parse("""["Films","Series"]""")
             : call == OmvRpcCall.SharedFolderPrivileges
                 ? Parse("""[{"type":"group","name":"family","perms":7},{"type":"user","name":"kid","perms":5},{"type":"user","name":"guest","perms":0}]""")
                 : Parse("""{"total":3,"data":[{"uuid":"u1","name":"media","reldirpath":"media/","comment":"Movies"},{"uuid":"u2","name":"photos","reldirpath":"photos/"},{"uuid":"u3","name":"backups","reldirpath":"backups/"}]}""");

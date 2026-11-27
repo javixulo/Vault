@@ -38,8 +38,17 @@ public static class Messages
         $"The shared folder '{folder}' has no explicit privilege set for any user or group, so OpenMediaVault's default applies. " +
         "Nothing is wrong with the call; tell the user no user or group has been granted or denied access explicitly.";
 
-    public static string NoAclEntries(string folder) =>
-        $"The root of the shared folder '{folder}' has no extended ACL entry for any named user or group; only the owner, group and other permissions apply. " +
+    public const string BadRelativePath =
+        "The relative_path argument is not a valid path of a subfolder: write the folder names inside the shared folder separated by '/', " +
+        "for example Manuales/Timbre, with no '.', '..' or empty level. Call the tool again with a valid relative_path, or without it for the shared folder's root.";
+
+    public static string SubfolderNotFound(string folder, string relativePath) =>
+        $"The shared folder '{folder}' has no subfolder '{relativePath}' (it may not exist, or be a file). Nothing was changed. " +
+        "Check the exact names (they are case-sensitive): call get_folder_acl with the parent path and include_subfolders true, and use a name from its subfolders.";
+
+    public static string NoAclEntries(string folder, string? relativePath) =>
+        (relativePath is null ? $"The root of the shared folder '{folder}'" : $"The subfolder '{relativePath}' of the shared folder '{folder}'") +
+        " has no extended ACL entry for any named user or group; only the owner, group and other permissions apply. " +
         "Nothing is wrong with the call; tell the user the folder has no extra ACL entries.";
 
     public static string NoUsersOrGroups(string? name) =>

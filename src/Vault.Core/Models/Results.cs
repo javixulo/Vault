@@ -81,17 +81,20 @@ public sealed record FolderPermissionsResult(
 public sealed record AclEntry(string SubjectType, string SubjectName, string Permissions);
 
 /// <summary>
-/// Outcome of <c>get_folder_acl</c>: the POSIX owner, group and base permissions of the folder's root plus its named ACL entries.
-/// <c>Message</c> is set when there is no named entry.
+/// Outcome of <c>get_folder_acl</c>: the POSIX owner, group and base permissions of the folder read, its named ACL entries and
+/// the names of its direct subfolders (null when not asked for, and in an error). <c>RelativePath</c> is null for the shared folder's root. <c>Message</c> is set when there
+/// is no named entry.
 /// </summary>
 public sealed record FolderAclResult(
     string Folder,
+    string? RelativePath,
     string? Owner,
     string? Group,
     string? OwnerPermissions,
     string? GroupPermissions,
     string? OtherPermissions,
     IReadOnlyList<AclEntry> Entries,
+    IReadOnlyList<string>? Subfolders,
     string? Message = null,
     VaultError? Error = null)
 {
@@ -99,10 +102,11 @@ public sealed record FolderAclResult(
     [JsonIgnore]
     public bool Ok => Error is null;
 
-    public static FolderAclResult Found(string folder, string? owner, string? group, string ownerPerms, string groupPerms, string otherPerms, IReadOnlyList<AclEntry> entries, string? message = null) =>
-        new(folder, owner, group, ownerPerms, groupPerms, otherPerms, entries, message);
+    public static FolderAclResult Found(string folder, string? relativePath, string? owner, string? group, string ownerPerms, string groupPerms, string otherPerms, IReadOnlyList<AclEntry> entries, IReadOnlyList<string>? subfolders, string? message = null) =>
+        new(folder, relativePath, owner, group, ownerPerms, groupPerms, otherPerms, entries, subfolders, message);
 
-    public static FolderAclResult Failure(string folder, VaultError error) => new(folder, null, null, null, null, null, [], null, error);
+    public static FolderAclResult Failure(string folder, string? relativePath, VaultError error) =>
+        new(folder, relativePath, null, null, null, null, null, [], null, null, error);
 }
 
 /// <summary>An OMV user. <c>Uid</c> and <c>FullName</c> are null when OMV reports none.</summary>

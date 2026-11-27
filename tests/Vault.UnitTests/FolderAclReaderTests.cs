@@ -21,8 +21,120 @@ public sealed class FolderAclReaderTests
 
     private static FakeRpcClient Omv(string acl, string folders = Folders) => new()
     {
-        Handler = call => call == OmvRpcCall.SharedFolders ? FakeRpcClient.Json(folders) : FakeRpcClient.Json(acl),
+        Handler = call => FakeRpcClient.Json(call == OmvRpcCall.SharedFolders ? folders : call == OmvRpcCall.FolderBrowser ? "[]" : acl),
     };
+
+    /// <summary>An OMV whose <c>FolderBrowser.get</c> answers by path, and an empty list for any other path, as the real one does.</summary>
+    private static FakeRpcClient Tree(params (string Path, string Names)[] tree)
+    {
+        var omv = new FakeRpcClient();
+        omv.Handler = call => FakeRpcClient.Json(
+            call == OmvRpcCall.SharedFolders ? Folders
+            : call == OmvRpcCall.SharedFolderAcl ? Acl
+            : tree.FirstOrDefault(t => t.Path == omv.Calls[^1].Parameters.GetProperty("path").GetString()).Names ?? "[]");
+        return omv;
+    }
+
+    [Fact]
+    [Trait("Criteria", "UC-27.AC1, UC-27.AC3, UC-07.AC1")]
+    public async Task A_subfolder_is_checked_in_its_parent_and_then_read_with_its_own_subfolders()
+    {
+        var omv = Tree(("Manuales/", """["Timbre","Domótica"]"""), ("Manuales/Domótica/", """["Sensores"]"""));
+
+        var result = await Reader(omv).ReadAsync("media", "Manuales/Domótica", includeSubfolders: true);
+
+        Assert.True(result.Ok);
+        Assert.Equal("Manuales/Domótica", result.RelativePath);
+        Assert.Equal(["Sensores"], result.Subfolders);
+        Assert.Equal(3, result.Entries.Count);
+        Assert.Equal([OmvRpcCall.SharedFolders, OmvRpcCall.FolderBrowser, OmvRpcCall.SharedFolderAcl, OmvRpcCall.FolderBrowser], omv.Calls.Select(c => c.Call));
+        Assert.Equal("Manuales/", omv.Calls[1].Parameters.GetProperty("path").GetString());
+        Assert.Equal("sharedfolder", omv.Calls[1].Parameters.GetProperty("type").GetString());
+        Assert.Equal("u1", omv.Calls[1].Parameters.GetProperty("uuid").GetString());
+        Assert.Equal("Manuales/Domótica/", omv.Calls[2].Parameters.GetProperty("file").GetString());
+        Assert.Equal("Manuales/Domótica/", omv.Calls[3].Parameters.GetProperty("path").GetString());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Manuales")]
+    [Trait("Criteria", "UC-27.AC5")]
+    public async Task Without_include_subfolders_the_folder_read_is_not_listed(string? asked)
+    {
+        var omv = Tree(("/", """["Manuales"]"""));
+
+        var result = await Reader(omv).ReadAsync("media", asked);
+
+        Assert.True(result.Ok);
+        Assert.Null(result.Subfolders);
+        Assert.Equal(asked is null ? 0 : 1, omv.Calls.Count(c => c.Call == OmvRpcCall.FolderBrowser));
+    }
+
+    [Theory]
+    [InlineData("Manuales", "Manuales")]
+    [InlineData("/Manuales/", "Manuales")]
+    [InlineData("/", null)]
+    [InlineData("  ", null)]
+    [InlineData(null, null)]
+    [Trait("Criteria", "UC-27.AC2")]
+    public async Task Slashes_at_the_ends_are_ignored_and_nothing_means_the_root(string? asked, string? expected)
+    {
+        var result = await Reader(Tree(("/", """["Manuales"]"""))).ReadAsync("media", asked);
+
+        Assert.True(result.Ok);
+        Assert.Equal(expected, result.RelativePath);
+    }
+
+    [Theory]
+    [InlineData("nope")]
+    [InlineData("manuales")]
+    [InlineData("Manuales/nope")]
+    [InlineData("nope/Timbre")]
+    [Trait("Criteria", "UC-28.AC1")]
+    public async Task A_subfolder_its_parent_does_not_list_is_not_found_and_its_ACL_is_not_asked_for(string asked)
+    {
+        var omv = Tree(("/", """["Manuales"]"""), ("Manuales/", """["Timbre"]"""));
+
+        var result = await Reader(omv).ReadAsync("media", asked);
+
+        Assert.Equal("not_found", result.Error!.Code);
+        Assert.Contains($"'{asked}'", result.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("subfolders", result.Error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(omv.Calls, c => c.Call == OmvRpcCall.SharedFolderAcl);
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("Manuales/../..")]
+    [InlineData("./Manuales")]
+    [InlineData("Manuales//Timbre")]
+    [InlineData("Manuales\n")]
+    [InlineData("Manuales\0")]
+    [Trait("Criteria", "UC-22.AC2")]
+    public async Task A_relative_path_that_is_not_valid_is_rejected_before_OMV_is_called(string asked)
+    {
+        var omv = Tree();
+
+        var result = await Reader(omv).ReadAsync("media", asked);
+
+        Assert.Equal("invalid_arguments", result.Error!.Code);
+        Assert.Contains("relative_path", result.Error.Message, StringComparison.Ordinal);
+        Assert.Empty(omv.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("[1]")]
+    [InlineData("""[""]""")]
+    [Trait("Criteria", "UC-27.AC4")]
+    public async Task A_list_of_subfolders_Vault_cannot_read_is_a_bad_response(string names)
+    {
+        var result = await Reader(Tree(("/", names))).ReadAsync("media", includeSubfolders: true);
+
+        Assert.Equal("omv_bad_response", result.Error!.Code);
+        Assert.Empty(result.Entries);
+        Assert.Null(result.Subfolders);
+    }
 
     [Fact]
     [Trait("Criteria", "UC-20.AC1, UC-07.AC1")]
@@ -38,6 +150,8 @@ public sealed class FolderAclReaderTests
         Assert.Equal(("rwx", "r-x", "---"), (result.OwnerPermissions, result.GroupPermissions, result.OtherPermissions));
         Assert.Equal([new AclEntry("user", "kid", "r-x"), new AclEntry("group", "family", "rwx"), new AclEntry("group", "locked", "---")], result.Entries);
         Assert.Null(result.Message);
+        Assert.Null(result.RelativePath);
+        Assert.Null(result.Subfolders);
         Assert.Equal([OmvRpcCall.SharedFolders, OmvRpcCall.SharedFolderAcl], omv.Calls.Select(c => c.Call));
         Assert.Equal("u1", omv.Calls[1].Parameters.GetProperty("uuid").GetString());
         Assert.Equal("/", omv.Calls[1].Parameters.GetProperty("file").GetString());

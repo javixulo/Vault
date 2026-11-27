@@ -13,7 +13,7 @@ namespace Vault.TestSupport;
 /// <summary>
 /// A stand-in for the RPC endpoint of OpenMediaVault (<c>POST /rpc.php</c>), served by a real Kestrel on a free port. It
 /// is shared (linked, not copied) by the integration and system tests. It only knows what Vault calls:
-/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>Cron.getList</c>, <c>Apt.enumerateUpgraded</c>, <c>Compose.getContainerListBg</c>, <c>Compose.getServicesListBg</c>, <c>Exec.getOutput</c>, <c>DiskMgmt.enumerateDevices</c>, <c>Smart.getList</c> and <c>FileSystemMgmt.enumerateFilesystems</c>, and it
+/// <c>Session.login</c>, <c>System.getInformation</c>, <c>ShareMgmt.getList</c>, <c>ShareMgmt.getPrivileges</c>, <c>ShareMgmt.getFileACL</c>, <c>FolderBrowser.get</c>, <c>UserMgmt.enumerateAllUsers</c>, <c>UserMgmt.enumerateAllGroups</c>, <c>Services.getStatus</c>, <c>Cron.getList</c>, <c>Apt.enumerateUpgraded</c>, <c>Compose.getContainerListBg</c>, <c>Compose.getServicesListBg</c>, <c>Exec.getOutput</c>, <c>DiskMgmt.enumerateDevices</c>, <c>Smart.getList</c> and <c>FileSystemMgmt.enumerateFilesystems</c>, and it
 /// records every call it receives. Its login, session and error answers (and the shape of <c>System.getInformation</c>) were
 /// checked against a real OMV 8.5.1; the shared folder and privilege entries against a real OMV 8.5.12.
 /// </summary>
@@ -67,6 +67,17 @@ public sealed class FakeOmvServer : IAsyncDisposable
     public Dictionary<string, (string Owner, string Group, int User, int GroupPerms, int Other, List<(string Type, string Name, int Perms)> Entries)> Acls { get; } = new()
     {
         ["media"] = ("root", "users", 7, 5, 0, [("group", "family", 7), ("user", "kid", 5)]),
+    };
+
+    /// <summary>
+    /// The direct subfolders by shared folder name and path inside it (<c>media/</c> is the root of media). As a real OMV 8.5.12
+    /// does (2026-11-27), <c>FolderBrowser.get</c> answers a plain list of names, empty for a path that does not exist, while
+    /// <c>ShareMgmt.getFileACL</c> fails for it. The ACL of a subfolder is the entry of <see cref="Acls"/> with the same key.
+    /// </summary>
+    public Dictionary<string, string[]> Subfolders { get; } = new()
+    {
+        ["media/"] = ["Films", "Series"],
+        ["media/Films/"] = ["Classics"],
     };
 
     /// <summary>Every RPC the fake received, as <c>Service.method</c>, in order.</summary>
@@ -156,6 +167,7 @@ public sealed class FakeOmvServer : IAsyncDisposable
             ("ShareMgmt", "getList") => SharedFolderList(parameters),
             ("ShareMgmt", "getPrivileges") => FolderPrivileges(parameters),
             ("ShareMgmt", "getFileACL") => FolderAcl(parameters),
+            ("FolderBrowser", "get") => Browse(parameters),
             // Shapes checked against a real OMV 8.5.12 (2026-11-24): users {name, uid, gid, comment, dir, shell, groups, system}, groups {name, gid, members, system}.
             ("UserMgmt", "enumerateAllUsers") => Ok(new[]
             {
@@ -284,19 +296,20 @@ public sealed class FakeOmvServer : IAsyncDisposable
         var uuid = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("uuid", out var u) ? u.GetString() : null;
         var file = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("file", out var f) ? f.GetString() : null;
         var folder = SharedFolders.FirstOrDefault(s => s.Uuid == uuid);
-        if (folder.Name is null || file != "/")
+        if (folder.Name is null || file is null || !Exists(folder.Name, file))
         {
-            return Error(1, "Shared folder not found.");
+            return Error(0, "getfacl: No such file or directory", 500);
         }
 
-        var acl = Acls.TryGetValue(folder.Name, out var found) ? found : ("root", "users", 7, 0, 0, []);
+        var key = file == "/" ? folder.Name : $"{folder.Name}/{file}";
+        var acl = Acls.TryGetValue(key, out var found) ? found : ("root", "users", 7, 0, 0, []);
         int? Perms(string type, string name) =>
             acl.Entries.Where(e => e.Type == type && e.Name == name).Select(e => (int?)e.Perms).FirstOrDefault();
 
         // As a real OMV 8.5.12 does: every user and group of the NAS (system ones too), perms null when there is no entry.
         return Ok(new
         {
-            file = "srv/dev-disk-by-uuid-fake/" + folder.RelPath,
+            file = "srv/dev-disk-by-uuid-fake/" + folder.RelPath + file.TrimStart('/'),
             owner = acl.Owner,
             group = acl.Group,
             acl = new
@@ -310,6 +323,31 @@ public sealed class FakeOmvServer : IAsyncDisposable
                     .Select(s => new { name = s.Item1, perms = Perms("group", s.Item1), gid = s.Item2, system = s.Item3 }).ToList(),
             },
         });
+    }
+
+    private IResult Browse(JsonElement parameters)
+    {
+        var uuid = parameters.GetProperty("uuid").GetString();
+        var path = parameters.GetProperty("path").GetString()!;
+        var folder = SharedFolders.FirstOrDefault(s => s.Uuid == uuid);
+        if (folder.Name is null || parameters.GetProperty("type").GetString() != "sharedfolder")
+        {
+            return Error(1, "Shared folder not found.");
+        }
+
+        return Ok(Subfolders.GetValueOrDefault($"{folder.Name}/{path.TrimStart('/')}") ?? []);
+    }
+
+    private bool Exists(string folder, string path)
+    {
+        if (path == "/")
+        {
+            return true;
+        }
+
+        var trimmed = path.TrimEnd('/');
+        var cut = trimmed.LastIndexOf('/') + 1;
+        return Subfolders.TryGetValue($"{folder}/{trimmed[..cut]}", out var names) && names.Contains(trimmed[cut..]);
     }
 
     private static IResult Ok(object response) =>

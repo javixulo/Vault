@@ -6,21 +6,23 @@ using Vault.Core.Rpc;
 namespace Vault.Core.Shares;
 
 /// <summary>
-/// UC-20 to UC-22: reads the extended POSIX ACL of a shared folder's own root. The name the client gives is looked up in
-/// <c>ShareMgmt.getList</c>, then <c>ShareMgmt.getFileACL</c> is asked for that uuid and the file <c>/</c>.
+/// UC-20 to UC-22, UC-27 and UC-28: reads the extended POSIX ACL of a shared folder's root or of a subfolder, and, on request,
+/// its direct subfolders. The name the client gives is looked up in <c>ShareMgmt.getList</c>, then <c>ShareMgmt.getFileACL</c> and
+/// <c>FolderBrowser.get</c> are asked for that uuid and the path. A subfolder is first looked for in the list of its parent:
+/// OMV 8.5.12 answers an empty list for a path that does not exist, and the check keeps Vault from reading the ACL of a file.
 /// </summary>
 public sealed class FolderAclReader(IOmvRpcClient omv, ILogger<FolderAclReader> logger)
 {
     private const string What = "Reading the folder ACL";
 
-    public async Task<FolderAclResult> ReadAsync(string? folder, CancellationToken cancellationToken = default)
+    public async Task<FolderAclResult> ReadAsync(string? folder, string? relativePath = null, bool includeSubfolders = false, CancellationToken cancellationToken = default)
     {
         using var activity = Telemetry.Source.StartActivity("get_folder_acl");
         var asked = folder ?? string.Empty;
         FolderAclResult result;
         try
         {
-            result = await ReadCoreAsync(asked, cancellationToken);
+            result = await ReadCoreAsync(asked, relativePath, includeSubfolders, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -29,12 +31,12 @@ public sealed class FolderAclReader(IOmvRpcClient omv, ILogger<FolderAclReader> 
         catch (OmvRpcException error)
         {
             LogRpcFailed(error);
-            result = FolderAclResult.Failure(asked, Messages.ForRpc(error, What));
+            result = FolderAclResult.Failure(asked, relativePath, Messages.ForRpc(error, What));
         }
         catch (Exception error)
         {
             LogFailed(error);
-            result = FolderAclResult.Failure(asked, new VaultError(ErrorCodes.Failed, Messages.Failed(What)));
+            result = FolderAclResult.Failure(asked, relativePath, new VaultError(ErrorCodes.Failed, Messages.Failed(What)));
             activity.Fail(error);
         }
 
@@ -47,21 +49,40 @@ public sealed class FolderAclReader(IOmvRpcClient omv, ILogger<FolderAclReader> 
         return result;
     }
 
-    private async Task<FolderAclResult> ReadCoreAsync(string folder, CancellationToken cancellationToken)
+    private async Task<FolderAclResult> ReadCoreAsync(string folder, string? relativePath, bool includeSubfolders, CancellationToken cancellationToken)
     {
+        FolderAclResult Fail(string code, string message) => FolderAclResult.Failure(folder, relativePath, new VaultError(code, message));
+
         if (string.IsNullOrWhiteSpace(folder))
         {
-            return FolderAclResult.Failure(folder, new VaultError(ErrorCodes.InvalidArguments, Messages.BlankFolder));
+            return Fail(ErrorCodes.InvalidArguments, Messages.BlankFolder);
+        }
+
+        if (!RelativePath.TryParse(relativePath, out var levels))
+        {
+            return Fail(ErrorCodes.InvalidArguments, Messages.BadRelativePath);
         }
 
         var uuid = await SharedFolderLookup.FindUuidAsync(omv, folder, cancellationToken);
         if (uuid is null)
         {
             LogNotFound();
-            return FolderAclResult.Failure(folder, new VaultError(ErrorCodes.NotFound, Messages.FolderNotFound(folder)));
+            return Fail(ErrorCodes.NotFound, Messages.FolderNotFound(folder));
         }
 
-        var response = await omv.CallAsync(OmvRpcCall.SharedFolderAcl, new { uuid, file = "/" }, cancellationToken);
+        var subfolder = levels.Length == 0 ? null : string.Join('/', levels);
+        if (subfolder is not null)
+        {
+            var siblings = await ListSubfoldersAsync(uuid, RelativePath.ForOmv(levels.AsSpan(0, levels.Length - 1)), cancellationToken);
+            if (!siblings.Contains(levels[^1], StringComparer.Ordinal))
+            {
+                LogSubfolderNotFound();
+                return Fail(ErrorCodes.NotFound, Messages.SubfolderNotFound(folder, subfolder));
+            }
+        }
+
+        var path = RelativePath.ForOmv(levels);
+        var response = await omv.CallAsync(OmvRpcCall.SharedFolderAcl, new { uuid, file = path }, cancellationToken);
         if (response.ValueKind != JsonValueKind.Object || !response.TryGetProperty("acl", out var acl) || acl.ValueKind != JsonValueKind.Object)
         {
             throw new OmvRpcException(OmvRpcErrorKind.BadResponse, "ShareMgmt.getFileACL did not return an object with an 'acl' object.");
@@ -75,15 +96,31 @@ public sealed class FolderAclReader(IOmvRpcClient omv, ILogger<FolderAclReader> 
         // others are reported. An entry Vault cannot read is a bad response, not a skipped line: dropping it would hide
         // an access from an audit.
         var entries = ReadEntries(acl, "users", "user").Concat(ReadEntries(acl, "groups", "group")).ToList();
+        var subfolders = includeSubfolders ? await ListSubfoldersAsync(uuid, path, cancellationToken) : null;
         return FolderAclResult.Found(
             folder,
+            subfolder,
             response.ReadString("owner"),
             response.ReadString("group"),
             ownerPerms,
             groupPerms,
             otherPerms,
             entries,
-            entries.Count == 0 ? Messages.NoAclEntries(folder) : null);
+            subfolders,
+            entries.Count == 0 ? Messages.NoAclEntries(folder, subfolder) : null);
+    }
+
+    /// <summary>The names of the direct subfolders. A name Vault cannot read is a bad response, not a skipped line.</summary>
+    private async Task<List<string>> ListSubfoldersAsync(string uuid, string path, CancellationToken cancellationToken)
+    {
+        var response = await omv.CallAsync(OmvRpcCall.FolderBrowser, new { uuid, type = "sharedfolder", path }, cancellationToken);
+        if (response.ValueKind != JsonValueKind.Array ||
+            response.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String || string.IsNullOrEmpty(item.GetString())))
+        {
+            throw new OmvRpcException(OmvRpcErrorKind.BadResponse, "FolderBrowser.get did not return a list of folder names.");
+        }
+
+        return [.. response.EnumerateArray().Select(item => item.GetString()!)];
     }
 
     private static string BasePermissions(JsonElement acl, string name) =>
@@ -128,6 +165,9 @@ public sealed class FolderAclReader(IOmvRpcClient omv, ILogger<FolderAclReader> 
 #pragma warning disable CA1848, CA1873, CA1727
     private void LogNotFound() =>
         logger.LogWarning("No shared folder with the requested name was found");
+
+    private void LogSubfolderNotFound() =>
+        logger.LogWarning("No subfolder with the requested relative path was found");
 
     private void LogRpcFailed(OmvRpcException error) =>
         logger.LogError(error, "Reading the folder ACL failed ({error.type})", error.Kind);

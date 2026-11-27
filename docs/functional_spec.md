@@ -26,10 +26,10 @@ Vault keeps no inventory and stores nothing: every answer is read from OMV when 
 |---|---|
 | `name` | Name of the shared folder in OMV. Always present |
 | `uuid` | Identifier OMV gives it |
-| `relative_path` | Path of the folder relative to the file system it lives on |
+| `relative_path` | Path of the folder relative to the file system it lives on. **Not** the `relative_path` argument of `get_folder_acl`, which is relative to the shared folder |
 | `description` | The comment of the folder in OMV |
 
-This is the folder as OMV defines it. Its access is read with two other tools: `get_folder_permissions` (OMV's privileges) and `get_folder_acl` (the POSIX ACL of its root).
+This is the folder as OMV defines it. Its access is read with two other tools: `get_folder_permissions` (OMV's privileges) and `get_folder_acl` (the POSIX ACL of its root or of a subfolder).
 
 ### Privilege
 
@@ -43,7 +43,7 @@ An entry of `get_folder_permissions`: what one user or group may do with a share
 
 ### ACL entry
 
-An entry of `get_folder_acl`: a named user or group that has its own entry in the extended POSIX ACL of a shared folder's root. The owner, the group and *other* are not entries: they are the base permissions of the result.
+An entry of `get_folder_acl`: a named user or group that has its own entry in the extended POSIX ACL of the folder read (a shared folder's root or one of its subfolders). The owner, the group and *other* are not entries: they are the base permissions of the result.
 
 | Field | Notes |
 |---|---|
@@ -304,27 +304,31 @@ Note: `folder` is required by the contract but is declared optional in the tool'
 
 ### 2.4 Tool `get_folder_acl`
 
-Reads the extended POSIX ACL (`setfacl`/`getfacl`) of a shared folder's own root — the layer OMV keeps separate from the simple privileges of `get_folder_permissions` (OMV's own admin page calls them "Privileges" and "ACL (Access Control List)", two different pages for the same shared folder).
+Reads the extended POSIX ACL (`setfacl`/`getfacl`) of a shared folder's root, or of a subfolder inside it, and on request lists that folder's direct subfolders — the layer OMV keeps separate from the simple privileges of `get_folder_permissions` (OMV's own admin page calls them "Privileges" and "ACL (Access Control List)", two different pages for the same shared folder).
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `folder` | string | Yes | The shared folder's `name`, as `list_shared_folders` returns it |
+| `relative_path` | string | No | A subfolder, as a path relative to the shared folder, with `/` between levels (`Manuales`, `Manuales/Timbre`). It is OMV's "relative path" concept. Case-sensitive. A `/` at the start or the end is ignored. Missing, blank (only whitespace, line breaks and tabs included) or only `/` means the shared folder's own root. Any number of `/` at either end is ignored; in any other value spaces are part of the names. It is **not** the `relative_path` of a Shared folder (section 1) |
+| `include_subfolders` | boolean | No | Whether to also return `subfolders`. Default `false`: it is one more call to OMV and the list can be very long (a photo library), and it is not always needed |
 
 **Output** (`FolderAclResult`)
 
 | Field | Type | Notes |
 |---|---|---|
 | `folder` | string | The folder asked for |
-| `owner` | text | POSIX owner of the folder's root |
-| `group` | text | POSIX group of the folder's root |
+| `relative_path` | text | The subfolder read, without `/` at either end. `null` for the shared folder's root. In an error, the value as the client sent it |
+| `owner` | text | POSIX owner of the folder read |
+| `group` | text | POSIX group of the folder read |
 | `owner_permissions`, `group_permissions`, `other_permissions` | text | The base permissions of the owner, the group and everyone else, as `rwx` / `r-x` / `---` |
 | `entries` | list of ACL entry | The named users and groups that have an entry in the ACL, users first and then groups, each in OMV's order |
+| `subfolders` | list of text | The names (not paths) of the direct subfolders of the folder read, in OMV's order. `null` when `include_subfolders` is not `true` (and in an error); empty when asked for and there are none. One level only: to go deeper, call again with `relative_path` set to this one plus `/` plus a name |
 | `message` | text | Set when `entries` is empty: that no named user or group has an entry and only the base permissions apply |
 | `error` | Error | Empty when the call worked. See section 3 and UC-22 |
 
-How it works: resolves `folder` to its uuid the same way `get_folder_permissions` does, then calls `ShareMgmt.getFileACL` with that uuid and `file: "/"` — the ACL of the shared folder's own root, never of a file or subfolder inside it (out of scope for now: Vault has no tool that takes a path inside a folder). OMV answers (checked against a real OMV 8.5.12) with `{file, owner, group, acl: {user, group, other, users, groups}}`: `user`, `group` and `other` are the base permissions as a number from 0 to 7, and `users` and `groups` list **every** user and group of the NAS (system ones too) with `perms` set to the same kind of number when it has an entry in the ACL and `null` when it has none. Vault reports only the ones with a `perms`; the ones with `null` are not entries. An entry Vault cannot read (no name, or a number outside 0 to 7), or base permissions it cannot read, make the whole call fail with `omv_bad_response` rather than being left out, because an access missing from an audit would look like no access. A number sent as text (`"5"`) is read as a number, as everywhere else. A missing `owner` or `group` is reported as empty (`null`), not as a failure: they are information, not an access. The path OMV reports in `file` is not passed on.
+How it works: resolves `folder` to its uuid the same way `get_folder_permissions` does, For a `relative_path`, it first checks that it is a folder: it lists the parent with `FolderBrowser.get` and looks for the last name of the path in the answer, matched exactly. Only then does it call `ShareMgmt.getFileACL` with that uuid and `file` (`/` for the root, `Manuales/Timbre/` for a subfolder), and, only with `include_subfolders`, `FolderBrowser.get` for the same path to get its `subfolders`. The check of the parent is made with or without `include_subfolders`: its list is not returned, but OMV still has to build it, so it costs more when the parent has very many subfolders. The check comes first because of what a real OMV 8.5.12 does (2026-11-27): `FolderBrowser.get` answers a plain list of folder names, and an **empty list, not an error,** for a path that does not exist; `getFileACL` fails for such a path with an RPC error that carries the full path on the NAS. The check also means Vault never reads the ACL of a file. A `relative_path` with a `.` or `..` level, an empty level (`a//b`) or a control character is rejected before OMV is called, so a path cannot point outside the shared folder (symbolic links inside it have not been checked: open question *Subfolders: hidden folders and links*). The path of `FolderBrowser.get` is written like `file` (`/`, `Manuales/`, `Manuales/Timbre/`); on the real NAS the root also works as an empty text, and a subfolder also without the final `/`. If a folder is removed or renamed while the calls run, the result may be `omv_rpc_error` or an empty `subfolders`: this is accepted. As for `getFileACL`, OMV answers (checked against a real OMV 8.5.12) with `{file, owner, group, acl: {user, group, other, users, groups}}`: `user`, `group` and `other` are the base permissions as a number from 0 to 7, and `users` and `groups` list **every** user and group of the NAS (system ones too) with `perms` set to the same kind of number when it has an entry in the ACL and `null` when it has none. Vault reports only the ones with a `perms`; the ones with `null` are not entries. An entry Vault cannot read (no name, or a number outside 0 to 7), or base permissions it cannot read, make the whole call fail with `omv_bad_response` rather than being left out, because an access missing from an audit would look like no access. A number sent as text (`"5"`) is read as a number, as everywhere else. A missing `owner` or `group` is reported as empty (`null`), not as a failure: they are information, not an access. The path OMV reports in `file` is not passed on.
 
 #### UC-20 · Read a folder's ACL
 
@@ -335,6 +339,30 @@ How it works: resolves `folder` to its uuid the same way `get_folder_permissions
 | UC-20.AC1 | Report what OMV says | The folder exists and OMV reports named ACL entries for its root | The client calls the tool with that folder | Success, with the `owner`, `group` and the three base permissions, and `entries` has one item per named user or group that OMV gives a permission, each with its `permissions`. `message` and `error` are empty |
 | UC-20.AC2 | No named entry | The folder exists and no named user or group has an entry in its ACL | The client calls the tool with that folder | Success, with the owner, group and base permissions, an empty `entries`, and a `message` that says no named entry exists and only the base permissions apply. The call is not an error |
 | UC-20.AC3 | An entry Vault cannot read | OMV sends an ACL entry without a name or with a number outside 0 to 7, or base permissions that are missing or outside 0 to 7 | The client calls the tool | Failed, with `omv_bad_response`, and no partial `entries`. The entry is not left out (unlike UC-03.AC4, because a missing access would look like no access) |
+
+#### UC-27 · Read a subfolder's ACL and browse the subfolders
+
+The client reads the ACL of a folder inside a shared folder and, if it asks, finds the folders one level below.
+
+**Acceptance criteria**
+
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-27.AC1 | A subfolder | The shared folder has the subfolder asked for, at any depth | The client calls the tool with `folder` and `relative_path` | Success, with the owner, group, base permissions and `entries` of that subfolder, as UC-20 says for the root, and `relative_path` set to it |
+| UC-27.AC2 | Slashes | A `relative_path` with a `/` at the start or the end | The client calls the tool | The same result as without them. Blank, `/` or missing reads the root, and `relative_path` is `null` in the result |
+| UC-27.AC3 | Direct subfolders | The folder read, root or subfolder, has subfolders, or none | The client calls the tool with `include_subfolders` `true` | `subfolders` has the name of each direct one, in OMV's order, or is empty. Neither is an error |
+| UC-27.AC5 | Subfolders not asked for | `include_subfolders` is missing or `false` | The client calls the tool | `subfolders` is `null` and the folder read is not listed: the only `FolderBrowser.get` call is the check of the parent, and there is none for the root |
+| UC-27.AC4 | A list Vault cannot read | `FolderBrowser.get` answers something that is not a list of non-blank names | The client calls the tool | Failed, with `omv_bad_response`, and no partial result |
+
+#### UC-28 · Subfolder not found
+
+The client asks for a path that is not a folder of the shared folder.
+
+**Acceptance criteria**
+
+| ID | Name | Given | When | Then |
+|---|---|---|---|---|
+| UC-28.AC1 | No such subfolder | `relative_path` is not a folder inside the shared folder: a level does not exist, differs in case, or is a file | The client calls the tool | Failed, with `not_found`. The message names the shared folder and the path asked for and says to look at the `subfolders` of the parent, asked for with `include_subfolders`. The ACL is not asked for |
 
 #### UC-21 · Folder not found
 
@@ -351,6 +379,7 @@ How it works: resolves `folder` to its uuid the same way `get_folder_permissions
 | ID | Name | Given | When | Then |
 |---|---|---|---|---|
 | UC-22.AC1 | No folder given | | The client calls the tool with `folder` blank or missing | Rejected, with `invalid_arguments` that names `folder`. OMV is not called |
+| UC-22.AC2 | A path that is not valid | | The client calls the tool with a `relative_path` that has a `.` or `..` level, an empty level or a control character | Rejected, with `invalid_arguments` that names `relative_path`. OMV is not called |
 
 ### 2.5 Tool `list_users_and_groups`
 
@@ -621,7 +650,7 @@ A tool call fails when Vault cannot get a usable answer from OMV for any of thes
 4. OMV answers in a shape Vault does not expect.
 5. Something unexpected fails inside Vault.
 
-Failed means: the result has an `error` and is a tool error; nothing was changed on the NAS (Vault never changes anything); the failure is logged with its detail; and the message tells the client what happened and what to do next, without a credential, an address, a path or text sent by OMV.
+Failed means: the result has an `error` and is a tool error; nothing was changed on the NAS (Vault never changes anything); the failure is logged with its detail; and the message tells the client what happened and what to do next, without a credential, an address, a path of the NAS or text sent by OMV. A name or relative path that the client itself sent may be repeated in the message.
 
 **Acceptance criteria**
 
@@ -632,7 +661,7 @@ Failed means: the result has an `error` and is a tool error; nothing was changed
 | UC-02.AC3 | RPC error | OMV answers with an RPC error | The client calls any tool | Failed, with `omv_rpc_error`. The message gives the numeric code of the error, and says not to retry the same call |
 | UC-02.AC4 | Unexpected answer | OMV answers with something that is not what the call expects: not JSON, or without the data the tool needs | The client calls any tool | Failed, with `omv_bad_response`. The message says the OMV version may differ from the one Vault supports |
 | UC-02.AC5 | Unexpected failure | An unexpected failure occurs inside Vault | The client calls any tool | Failed, with `failed`. The message says it was not caused by the request and that retrying will not help. The cause is only in the logs |
-| UC-02.AC6 | Nothing leaks | Any of the failures above, with a password, an address or an OMV error text involved | The client calls any tool | The result, and the logs, contain no password. The result contains no address, path or text sent by OMV |
+| UC-02.AC6 | Nothing leaks | Any of the failures above, with a password, an address or an OMV error text involved | The client calls any tool | The result, and the logs, contain no password. The result contains no address, path of the NAS or text sent by OMV |
 
 ### 3.2 The session with OMV and the read-only boundary
 
@@ -731,7 +760,8 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 | `System.getInformation` | `system_status` | Returns hostname, OMV version, kernel, CPU, memory and uptime | A `get` that reads the state of the machine |
 | `ShareMgmt.getList` | `list_shared_folders`, `get_folder_permissions` and `get_folder_acl` (to find a folder's uuid) | Returns the shared folders, paged with a start and a limit | A `get` that reads the configured list |
 | `ShareMgmt.getPrivileges` | `get_folder_permissions` | Returns, for a shared folder given by uuid, one entry per OMV user and group: `type`, `id`, `name` and `perms` (0 deny, 5 read-only, 7 read-write, or `null` when no privilege is set) | A `get` that reads the configured privileges |
-| `ShareMgmt.getFileACL` (`params: {uuid, file: "/"}`) | `get_folder_acl` | Returns, for a shared folder given by uuid, the POSIX `owner` and `group` of its root and an `acl` with the base permissions (`user`, `group`, `other`, each 0 to 7) and one entry per OMV user and group in `users` and `groups`, with `perms` (0 to 7, or `null` when it has no entry) | A `get` that reads the configured ACL; does not run `setfacl` |
+| `FolderBrowser.get` (`params: {uuid, type: "sharedfolder", path}`) | `get_folder_acl` | Returns the names of the direct subfolders of a path inside a shared folder, as a plain list of text; an empty list for a path with none or that does not exist. It is what OMV's web interface calls to browse a relative path | A `get` that reads directory names; creates, changes and deletes nothing, and returns no file content |
+| `ShareMgmt.getFileACL` (`params: {uuid, file}`) | `get_folder_acl` | Returns, for a folder given by the uuid of its shared folder and a path inside it (`/` is the root), its POSIX `owner` and `group` and an `acl` with the base permissions (`user`, `group`, `other`, each 0 to 7) and one entry per OMV user and group in `users` and `groups`, with `perms` (0 to 7, or `null` when it has no entry) | A `get` that reads the configured ACL; does not run `setfacl` |
 | `UserMgmt.enumerateAllUsers` (`params: {detail: "basic"}`) | `list_users_and_groups` | Returns every OMV user (system ones too) as a list of `{name, uid, gid, comment, dir, shell, groups, system}` | A `get` that reads the configured list |
 | `UserMgmt.enumerateAllGroups` | `list_users_and_groups` | Returns every OMV group (system ones too) as a list of `{name, gid, members, system}` | A `get` that reads the configured list |
 | `Services.getStatus` | `list_services` | Returns every service OMV manages as a list of `{name, title, enabled, running}`; on the test NAS: `Docker`, `cterm`, `nfs`, `rsyncd`, `samba` and `ssh` | A `get` that reads the state of the services; starts and stops none |
@@ -763,7 +793,8 @@ The calls Vault can make to OMV (`POST <base>/rpc.php`). **A call is exposed onl
 
 | # | Title | Description | Status | Priority | Comments |
 |---|---|---|---|---|---|
-| 1 | OMV version | Whether the services Vault calls (`Session`, `System`, `ShareMgmt`) keep the same methods, parameters and answer fields as OMV is updated. | Half-way | High | The real NAS runs OMV 8.5.12-1 (a UGREEN DXP2800, updated regularly), so Vault targets OMV 8.x. Checked against OMV 8.5.1 in a community Docker image (no systemd, no disks, no shared folders): the login answer (`status: "authenticated"`, not `authenticated: true`), the session cookie, HTTP 401 for an invalid session, HTTP 400 for a bad login and the fields of `System.getInformation` are confirmed, and Vault works against it. Also checked against the real 8.5.12-1 with an account in the group `openmediavault-admin`: both tools work and `ShareMgmt.getList` returns `reldirpath` and `comment` as assumed. Left: whether an account outside that group can call these methods (the real test was not done without the group), and how to notice that an OMV update changed an answer. |
+| 1 | OMV version | Whether the services Vault calls (`Session`, `System`, `ShareMgmt`, `FolderBrowser`) keep the same methods, parameters and answer fields as OMV is updated. | Half-way | High | The real NAS runs OMV 8.5.12-1 (a UGREEN DXP2800, updated regularly), so Vault targets OMV 8.x. Checked against OMV 8.5.1 in a community Docker image (no systemd, no disks, no shared folders): the login answer (`status: "authenticated"`, not `authenticated: true`), the session cookie, HTTP 401 for an invalid session, HTTP 400 for a bad login and the fields of `System.getInformation` are confirmed, and Vault works against it. Also checked against the real 8.5.12-1 with an account in the group `openmediavault-admin`: both tools work and `ShareMgmt.getList` returns `reldirpath` and `comment` as assumed. Left: whether an account outside that group can call these methods (the real test was not done without the group), and how to notice that an OMV update changed an answer. |
 | 2 | Remaining tool catalog | Tool 2.5 (`list_users_and_groups`) is built and confirmed against the real NAS (2026-11-24: OMV's users have `comment`, `groups` and `system` and no "disabled" flag, so the model's `disabled` is gone and `system` splits the result in two blocks). Tool 2.6 (`list_services`) is built and confirmed against the real NAS (2026-11-24: one `Services.getStatus` call answers a plain list of `{name, title, enabled, running}`); tool 2.7 (`list_disks`) is built and confirmed against the real NAS (2026-11-24: `DiskMgmt.enumerateDevices` answers a plain list and `Smart.getList` a `{total, data}` with only the disks that have SMART, each with an `overallstatus`); tool 2.8 (`list_filesystems`) is built and confirmed against the real NAS (2026-11-24: `FileSystemMgmt.enumerateFilesystems` answers a plain list; `used` is human text, not bytes, and an unmounted filesystem has `-1` in its sizes); tool 2.9 (`list_scheduled_tasks`) is built and its call confirmed against the real NAS (2026-11-24: `Cron.getList` needs a `type` list and answers `{total, data}`; the NAS has no cron jobs, so the fields of an entry are still to be checked against a real one, and OMV keeps no last-run data, so the last-run fields were dropped); tool 2.10 (`list_pending_updates`) is built and confirmed against the real NAS (2026-11-24: the guessed `Apt.getUpgradeList` does not exist; `Apt.enumerateUpgraded` answers a plain list of APT package records, 43 on the NAS, with `oldversion` empty for a new package); `get_folder_permissions` (2.3) and `get_folder_acl` (2.4) are built and confirmed against the real NAS (both real answers differed from a first guess: each lists every user and group of the NAS, with `perms` null when none is set; `getFileACL` also gives the POSIX owner, group and base permissions). What is still open: the entry fields of `list_scheduled_tasks` need a real cron job to be checked. And a non-admin OMV account may not be able to call some of these either (see the question *OMV version*, which that part belongs to). | Half-way | High | Next: confirm each remaining call against the real NAS the way `list_users_and_groups` was (expose the call, read the real answer, fix the models and `FakeOmvServer`). One at a time, before building its tool; a call that turns out wrong only needs this table and the one tool's code fixed, not the rest of the spec. |
 | 3 | Credentials secret | How the OMV account reaches the container. **Settled (2026-11-24):** the container is configured only through its compose file, with no file on the host: the user name is the variable `Vault__OmvUsername` (not a secret) and the password is a Docker secret mounted as a plain-text file (`/run/secrets/omv_password`), created by compose from the variable `VAULT_OMV_PASSWORD`; never an environment variable of the container, a log or the repository. This replaces the earlier JSON file `secrets/omv_credentials.json` (technical spec, section 4, with what was checked). Still open: who creates and rotates the password (a rotated secret is read at the next login, but a changed variable needs the container recreated). | Half-way | Low | The file permissions question is closed: compose mounts the secret with mode 0444, so the non-root user reads it. |
 | 4 | Docker tools: data source and shape | **Decided (2026-11-24).** Vault keeps only `list_docker_containers` (2.11), built on OMV's `Compose` RPC (`Compose.get*Bg` read with `Exec.getOutput`, UC-26) and confirmed against the real NAS. 2.13 is merged into 2.11. **2.12, 2.14, 2.15 and 2.16 are not built in Vault:** the images check took 13 s the first time (too slow for a tool), and the user also needs the state of the running containers and, later, to manage them, which OMV's read-only jobs cannot do. They move to a separate **Docker MCP** over the Docker socket: a deterministic MCP with a fixed list of endpoints (ideally behind a socket proxy), in two levels (observe, then operate), not an AI agent with raw access. The socket and Portainer stay out of Vault, which is strictly read-only. **Still open:** what OMV answers when Docker is stopped or the Compose plugin is missing, and how a container on several networks and a stopped container look (not checkable without changing the NAS); and whether an account outside `openmediavault-admin` can start these jobs (see *OMV version*). | Decided | Medium | Done: 2.11 built. Next, outside Vault: name and specify the Docker MCP (observe level first; updating a whole Compose stack is a later phase, since the socket API does not know Compose files). |
+| 5 | Subfolders: hidden folders and links | Not checked against the real NAS: whether `FolderBrowser.get` lists hidden folders (a name that starts with `.`; if it does not, `get_folder_acl` answers `not_found` for them), and whether it lists a symbolic link to a folder, which could point outside the shared folder. Only the last level of a path is checked against its parent, so it is also unchecked what happens with a path that goes through a hidden folder or a link (only permissions and folder names would be read, never file content). The size of `subfolders` has no limit either. | Open | Medium | Checking the first two needs a hidden folder and a link on the NAS, which Vault cannot create. |

@@ -6,9 +6,12 @@ against) is in [`docs/technical_spec.md`](docs/technical_spec.md), section 10.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
 ### Added
 
 - `list_users_and_groups` also returns the `uid` of each user and the `gid` of each group (`null` when OMV sends none).
+- `get_folder_acl` can read the ACL of a subfolder with the new optional argument `relative_path`, and, with `include_subfolders` (off by default), also returns the names of the direct `subfolders` of the folder it reads.
 
 ## [0.1.1] - 2026-11-25
 

@@ -32,8 +32,11 @@ public sealed class OmvRpcCall
     /// <summary>The per-user and per-group privileges of one shared folder. Used by <c>get_folder_permissions</c>. Checked against OMV 8.5.12.</summary>
     public static readonly OmvRpcCall SharedFolderPrivileges = new("ShareMgmt", "getPrivileges");
 
-    /// <summary>The extended POSIX ACL of a shared folder's root. Used by <c>get_folder_acl</c>. Checked against OMV 8.5.12.</summary>
+    /// <summary>The extended POSIX ACL of a shared folder's root or of a path inside it. Used by <c>get_folder_acl</c>. Checked against OMV 8.5.12.</summary>
     public static readonly OmvRpcCall SharedFolderAcl = new("ShareMgmt", "getFileACL");
+
+    /// <summary>The names of the direct subfolders of a path inside a shared folder. Used by <c>get_folder_acl</c>. Checked against OMV 8.5.12.</summary>
+    public static readonly OmvRpcCall FolderBrowser = new("FolderBrowser", "get");
 
     /// <summary>The OMV users. Used by <c>list_users_and_groups</c>. Checked against OMV 8.5.12.</summary>
     public static readonly OmvRpcCall Users = new("UserMgmt", "enumerateAllUsers");
@@ -72,7 +75,7 @@ public sealed class OmvRpcCall
     internal static readonly OmvRpcCall BackgroundOutput = new("Exec", "getOutput");
 
     /// <summary>Every call a tool can make, in a fixed order. <see cref="Login"/> is not here.</summary>
-    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems, ScheduledTasks, PendingUpdates, DockerContainers, ComposeServices, BackgroundOutput];
+    public static IReadOnlyList<OmvRpcCall> Exposed { get; } = [SystemInformation, SharedFolders, SharedFolderPrivileges, SharedFolderAcl, FolderBrowser, Users, Groups, ServicesStatus, Disks, DisksSmart, Filesystems, ScheduledTasks, PendingUpdates, DockerContainers, ComposeServices, BackgroundOutput];
 
     public override string ToString() => Name;
 }

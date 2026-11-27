@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Vault.Core.Rpc;
 using Xunit;
 
@@ -17,11 +18,13 @@ public sealed class GetFolderAclContractTests : IAsyncLifetime
     public async ValueTask DisposeAsync() => await _server.DisposeAsync();
 
     [Fact]
-    public async Task Exposes_get_folder_acl_with_one_argument_named_folder_and_a_snake_case_output()
+    public async Task Exposes_get_folder_acl_with_its_three_arguments_and_a_snake_case_output()
     {
         var tool = Assert.Single(await _server.ToolsAsync(), t => t.Name == "get_folder_acl");
 
         Assert.Contains("\"folder\"", tool.JsonSchema.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("\"relative_path\"", tool.JsonSchema.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("\"include_subfolders\"", tool.JsonSchema.GetRawText(), StringComparison.Ordinal);
         var output = tool.ReturnJsonSchema!.Value.GetRawText();
         Assert.Contains("owner_permissions", output, StringComparison.Ordinal);
         Assert.Contains("subject_name", output, StringComparison.Ordinal);
@@ -45,7 +48,42 @@ public sealed class GetFolderAclContractTests : IAsyncLifetime
         Assert.Equal(["kid", "family"], entries.Select(e => e.GetProperty("subject_name").GetString()));
         Assert.Equal(["user", "group"], entries.Select(e => e.GetProperty("subject_type").GetString()));
         Assert.Equal(["r-x", "rwx"], entries.Select(e => e.GetProperty("permissions").GetString()));
+        Assert.Equal(JsonValueKind.Null, content.GetProperty("relative_path").ValueKind);
+        Assert.Equal(JsonValueKind.Null, content.GetProperty("subfolders").ValueKind);
         Assert.Equal(["ShareMgmt.getList", "ShareMgmt.getFileACL"], _server.Omv.Calls);
+    }
+
+    [Fact]
+    [Trait("Criteria", "UC-27.AC3")]
+    public async Task The_include_subfolders_argument_adds_the_names_of_the_direct_subfolders()
+    {
+        var result = await _server.CallAsync("get_folder_acl", new() { ["folder"] = "media", ["include_subfolders"] = true });
+
+        Assert.NotEqual(true, result.IsError);
+        Assert.Equal(["Films", "Series"], result.StructuredContent!.Value.GetProperty("subfolders").EnumerateArray().Select(s => s.GetString()));
+        Assert.Equal(["ShareMgmt.getList", "ShareMgmt.getFileACL", "FolderBrowser.get"], _server.Omv.Calls);
+    }
+
+    [Fact]
+    [Trait("Criteria", "UC-27.AC1")]
+    public async Task The_relative_path_argument_reads_a_subfolder_that_its_parent_lists()
+    {
+        var result = await _server.CallAsync("get_folder_acl", new() { ["folder"] = "media", ["relative_path"] = "/Films/" });
+
+        Assert.NotEqual(true, result.IsError);
+        Assert.Equal("Films", result.StructuredContent!.Value.GetProperty("relative_path").GetString());
+        Assert.Equal(["ShareMgmt.getList", "FolderBrowser.get", "ShareMgmt.getFileACL"], _server.Omv.Calls);
+    }
+
+    [Fact]
+    [Trait("Criteria", "UC-28.AC1")]
+    public async Task A_subfolder_that_does_not_exist_is_a_not_found_tool_error()
+    {
+        var result = await _server.CallAsync("get_folder_acl", new() { ["folder"] = "media", ["relative_path"] = "nope" });
+
+        Assert.True(result.IsError);
+        Assert.Equal("not_found", result.StructuredContent!.Value.GetProperty("error").GetProperty("code").GetString());
+        Assert.DoesNotContain("ShareMgmt.getFileACL", _server.Omv.Calls);
     }
 
     [Fact]

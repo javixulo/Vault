@@ -40,7 +40,7 @@ public sealed class SystemTests
         Assert.Equal("nas-test", status.StructuredContent!.Value.GetProperty("status").GetProperty("hostname").GetString());
         Assert.NotEqual(true, folders.IsError);
         Assert.Equal(3, folders.StructuredContent!.Value.GetProperty("folders").GetArrayLength());
-        Assert.All(omv.Calls, call => Assert.Contains(call, new[] { "Session.login", "System.getInformation", "ShareMgmt.getList", "ShareMgmt.getPrivileges", "ShareMgmt.getFileACL" }));
+        Assert.All(omv.Calls, call => Assert.Contains(call, new[] { "Session.login", "System.getInformation", "ShareMgmt.getList", "ShareMgmt.getPrivileges", "ShareMgmt.getFileACL", "FolderBrowser.get" }));
     }
 
     [Fact]

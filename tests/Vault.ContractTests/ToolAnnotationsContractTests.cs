@@ -55,7 +55,7 @@ public sealed class ToolAnnotationsContractTests : IAsyncLifetime
             ["system_status"] = [],
             ["list_shared_folders"] = ["limit", "offset"],
             ["get_folder_permissions"] = ["folder"],
-            ["get_folder_acl"] = ["folder"],
+            ["get_folder_acl"] = ["folder", "include_subfolders", "relative_path"],
             ["list_users_and_groups"] = ["name"],
             ["list_services"] = [],
             ["list_disks"] = [],

@@ -60,9 +60,11 @@ public sealed class ToolsAgainstOmvTests
         await using var env = await OmvTestEnvironment.StartAsync();
         var reader = new FolderAclReader(env.Client, NullLogger<FolderAclReader>.Instance);
 
-        var media = await reader.ReadAsync("media", Token);
-        var photos = await reader.ReadAsync("photos", Token);
-        var missing = await reader.ReadAsync("nope", Token);
+        var media = await reader.ReadAsync("media", includeSubfolders: true, cancellationToken: Token);
+        var photos = await reader.ReadAsync("photos", cancellationToken: Token);
+        var missing = await reader.ReadAsync("nope", cancellationToken: Token);
+        var classics = await reader.ReadAsync("media", "Films/Classics", includeSubfolders: true, Token);
+        var missingSubfolder = await reader.ReadAsync("media", "Films/nope", cancellationToken: Token);
 
         // OMV lists every user and group; the fake sends perms null for those without an entry, and Vault leaves them out.
         Assert.Equal(["kid", "family"], media.Entries.Select(e => e.SubjectName));
@@ -72,8 +74,13 @@ public sealed class ToolsAgainstOmvTests
         Assert.Empty(photos.Entries);
         Assert.NotNull(photos.Message);
         Assert.Equal("not_found", missing.Error!.Code);
+        Assert.Equal(["Films", "Series"], media.Subfolders);
+        Assert.True(classics.Ok);
+        Assert.Empty(classics.Subfolders!);
+        Assert.Equal("not_found", missingSubfolder.Error!.Code);
         Assert.Equal(
-            ["Session.login", "ShareMgmt.getList", "ShareMgmt.getFileACL", "ShareMgmt.getList", "ShareMgmt.getFileACL", "ShareMgmt.getList"],
+            ["Session.login", "ShareMgmt.getList", "ShareMgmt.getFileACL", "FolderBrowser.get", "ShareMgmt.getList", "ShareMgmt.getFileACL", "ShareMgmt.getList",
+                "ShareMgmt.getList", "FolderBrowser.get", "ShareMgmt.getFileACL", "FolderBrowser.get", "ShareMgmt.getList", "FolderBrowser.get"],
             env.Server.Calls);
     }
 
